@@ -1,2 +1,3 @@
 # seafloor_threshold_methods
-For threshold method scripts - connected to the work of WKD6SCOPE
+
+Data, indicator and threshold method scripts connected to the work of WKBENTH4.
