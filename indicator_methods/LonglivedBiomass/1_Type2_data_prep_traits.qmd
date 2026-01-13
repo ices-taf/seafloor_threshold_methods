@@ -1,0 +1,454 @@
+---
+title: "Loading and initial formatting of Type 2 data"
+subtitle: "Data preparation for RBS recovery rate"
+author: "Jochen Depestele"
+date: today
+date-format: "D MMMM YYYY"
+format:
+  pdf:
+    number-sections: true
+    tbl-cap-location: top
+    include-in-header:
+      text: |
+        \usepackage{longtable}
+execute: 
+  warning: false
+  echo: false
+  message: false
+  include: false
+editor: visual
+---
+
+```{r SET-UP R-SESSION}
+# These folders are user-specific
+data_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/benthos_WKD6SCOPE/2026_WKBENTH4/"
+traits_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/traits_benth/"
+if(all(dir.exists(paste0(data_folder,c("Type 1","Type2","Type3"))))){
+  cat("\n=> Locate data folders (Type 1, Type2, Type3) \nfrom the data call in data_folder !\n ")}
+if(!all(dir.exists(c(traits_folder)))){
+  cat("\n=> Locate all folders with traits information !\n ")}
+
+in_folder <- "./input"
+out_folder <- "./output"
+
+# R packages
+library(readxl)
+library(data.table)
+library(worrms)
+library(pbapply)
+library(tools)
+library(readr)
+library(dplyr)
+library(kableExtra)
+
+```
+
+```{r PATH OF TYPE 2 DATA}
+#| echo: false
+## LOAD DATA ----
+d_files <- list.files(paste0(data_folder,"Type2"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
+d_files <- d_files[!grepl("_old", d_files)]
+d_sheets <- lapply(d_files, function(xfile) {
+  sheets <- excel_sheets(xfile)
+  data.frame(
+    file = basename(xfile),
+    has_station_info = "Station information" %in% sheets,
+    has_biological_info = "Biological information" %in% sheets
+  )
+})
+d_sheets <- do.call(rbind, d_sheets)
+d_sheets[with(d_sheets, !has_station_info | !has_biological_info),] # Which files do NOT have all worksheets?
+
+
+```
+
+```{r Meta data}
+## Meta data ====
+meta_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[1]))
+names(meta_lst) <- gsub("\\.xlsx","",basename(d_files))
+meta_dt <- rbindlist(lapply(meta_lst, function(x)x[,c("cl_name","cl_description")]), idcol=T)
+
+```
+
+```{r Station data}
+## Stations ====
+Stn_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[2]))
+names(Stn_lst) <- gsub("\\.xlsx","",basename(d_files))
+
+Stn_lst <- lapply(Stn_lst, function(df) {
+  names(df) <- tolower(names(df)) # Lowercase column names
+  df})
+col_freq <- table(unlist(lapply(Stn_lst, names)))
+sort(col_freq)
+basecols <- names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
+# basecols
+# mostcols <- sort(names(col_freq[col_freq >= length(Stn_lst)-3]))     # These columns occur in every excel file except 3 files
+# mostcols[!mostcols %in% basecols]
+basecols <- c(basecols, c("pressure_value",paste0("pressure_value",c("1","2"))), "month")
+
+Stn_dt <- rbindlist(
+  lapply(Stn_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
+  idcol = T,
+  fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
+
+to_table1 <- table(Stn_dt$.id, Stn_dt$pressure_type)
+to_table2 <- table(Stn_dt$.id, Stn_dt$gear)
+
+Stn_dt[,gear_cat := ifelse(gear %in% unique(Stn_dt$gear)[grepl("trawl",tolower(unique(Stn_dt$gear)))],
+                           "trawl",
+                           ifelse(gear %in% unique(Stn_dt$gear)[grepl("veen|hamon|day|sm|core",tolower(unique(Stn_dt$gear)))],
+                                  "grab",NA))]
+c(table(Stn_dt$gear_cat), 
+  setNames(sum(table(Stn_dt$gear_cat)), "total"),
+  setNames(nrow(Stn_dt), "Nr records Stn_dt")) # All records were sampled with grabs or trawls
+Stn_dt[!gear_cat %in% c("trawl","grab")]
+
+selcols <- c(".id","station","replicates","year")
+Stn_dt[,..selcols][duplicated(Stn_dt[,..selcols]) | duplicated(Stn_dt[,..selcols], fromLast=T)]
+selcols <- c(".id","station","replicates","year","month")
+Stn_dt[,..selcols][duplicated(Stn_dt[,..selcols]) | duplicated(Stn_dt[,..selcols], fromLast=T)]
+
+to_table3 <- table(Stn_dt$.id, Stn_dt$gear_cat)
+
+unique(Stn_dt[!is.na(pressure_value1) | !is.na(pressure_value2)]$pressure_type)
+Stn_dt[pressure_type == "Sand extraction + fishery"]
+
+# First copy the unchanged columns
+DT1 <- copy(Stn_dt[pressure_type == "Sand extraction + fishery"])
+DT2 <- copy(Stn_dt[pressure_type == "Sand extraction + fishery"])
+
+# Modify only the needed columns
+DT1[, `:=`(
+  pressure_type  = "Sand extraction",
+  pressure_value = pressure_value1
+)]
+
+DT2[, `:=`(
+  pressure_type  = "SAR",
+  pressure_value = pressure_value2
+)]
+
+# nrow(Stn_dt[pressure_type == "Sand extraction + fishery"]) # Split these pressure into two results in a double number of rows
+# rbind(DT1, DT2)
+
+Stn_dt <- rbind(Stn_dt[pressure_type != "Sand extraction + fishery"],
+                DT1, DT2)
+
+Stn_dt[, c("pressure_value1", "pressure_value2") := NULL]
+
+
+saveRDS(Stn_dt, paste0(out_folder, "/station_dt.RDS"))
+
+```
+
+# Loading Type 2 data
+
+## Metadata, stations and biological data
+### Stations Stn_dt
+The stations were loaded from the respective station worksheets and pooled into one datatable. There are four pressure types (@tbl-pressuretypes), which were sampled with a range of grabs or trawls (@tbl-smpl_gears) that were categorized as grab and trawls (@tbl-smpl_gears_revised).
+
+```{r, include=T}
+#| label: tbl-pressuretypes
+#| tbl-cap: 'Pressure types by input files'
+
+kable(to_table1,
+      format = "latex", booktabs = TRUE, escape = T 
+      ) %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
+
+```
+
+```{r, include=T}
+#| label: tbl-smpl_gears
+#| tbl-cap: 'Pressure types by input files'
+
+kable(to_table2,
+      format = "latex", booktabs = TRUE, escape = T 
+      ) %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
+
+```
+
+```{r, include=T}
+#| label: tbl-smpl_gears_revised
+#| tbl-cap: 'Pressure types by input files'
+
+kable(to_table3,
+      format = "latex", booktabs = TRUE, escape = T 
+      ) %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
+
+```
+
+\newpage
+
+```{r Biological data}
+
+B_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[3]))
+names(B_lst) <- gsub("\\.xlsx","",basename(d_files))
+B_lst <- lapply(B_lst, function(df) {
+  names(df) <- tolower(names(df)) # Lowercase column names
+  df})
+col_freq <- table(unlist(lapply(B_lst, names)))
+sort(col_freq) # 4 files have taxcode instead of aphiaid
+
+basecols <- names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
+basecols <- c(basecols, "aphiaid","taxcode", "month")
+
+B_dt <- rbindlist(
+  lapply(B_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
+  idcol = T,
+  fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
+B_dt[,.id:=gsub("\\.xlsx","",.id)]
+
+## PRE-PROCESSING: BIOMASS ----
+B_dt[,biomass := as.numeric(ifelse(biomass=="NA",NA_character_,biomass))]
+datasets_excluded <- unique(B_dt[is.na(biomass)]$.id) # TWO DATASETS HAVE NAs, and ARE FULLY OR PARTIALLY EXCLUDED BECAUSE THEY DO NOT HAVE BIOMASS INFO
+# "NS_BfN_beam_btrawling.xlsx" "WMS_IMPEC_btrawling.xlsx"
+B_dt <- B_dt[!is.na(biomass)]
+
+## CONVERT BIOMASS VALUES TO THE SAME UNITS ====
+biom_unit <- meta_dt[cl_name=="biomass" & .id %in% unique(B_dt$.id)]
+biom_unit[, sampled_area_desc := stringr::str_split_i(cl_description, "per ", 2)]
+biom_unit[, sampled_area_desc := stringr::str_split_i(sampled_area_desc, "\r" , 1)]
+biom_unit[, sampled_area_unit := fifelse(grepl("\\bkm2\\b", sampled_area_desc, TRUE), "km2",
+                                         fifelse(grepl("\\bha\\b", sampled_area_desc, TRUE), "ha",
+                                                 fifelse(grepl("m²|\\bm2\\b|\\b1m2\\b", sampled_area_desc, TRUE), "m2",
+                                                         NA_character_)))]
+biom_unit[, sampled_area := fifelse(grepl("^[0-9.]+", sampled_area_desc),
+                                    as.numeric(sub("^([0-9.]+).*", "\\1", sampled_area_desc)), 1)]
+biom_unit[, sampled_area_sqm := ifelse(grepl("km2",sampled_area_unit),
+                                            sampled_area*1e6,ifelse(grepl("ha",sampled_area_unit),
+                                                                    sampled_area*10000,ifelse(grepl("m2",sampled_area_unit),
+                                                                                              sampled_area,NA_integer_)
+                                                                      ))]
+selcols <- c(".id","cl_description")
+to_table4 <- biom_unit[,..selcols]
+B_dt[, biomass_unit := biom_unit$cl_description[match(B_dt$.id, biom_unit$.id, nomatch=NA_integer_)]]
+B_dt[, sampled_area_sqm := biom_unit$sampled_area_sqm[match(B_dt$.id, biom_unit$.id, nomatch=NA_integer_)]]
+B_dt[,biomass_g_per_sqm := biomass / sampled_area_sqm]
+B_dt[,biomass_g_per_sqm := format(biomass_g_per_sqm, scientific = FALSE, trim = TRUE)]
+
+
+## ASSIGN APHIA-IDs TO ALL TAXA ====
+# table(!is.na(B_dt[is.na(aphiaid)]$taxcode)) # When aphiaid is lacking, there's a taxcode
+tax_without_id <- sort(unique(B_dt[!is.na(taxcode)]$taxcode))
+# tax_aphia_id <- wm_name2id_(name = tax_without_id) # Warnings for some records
+rank_order <- c("Kingdom", "Phylum", "Class", "Order", "Infraorder", "Family", "Genus", "Species", "Subspecies", "Variety", "Form")
+get_valid_aphia <- function(name) {
+  rec <- tryCatch(worrms::wm_records_name(name),
+                  error = function(e) NULL,
+                  warning = function(w) NULL)
+  if (is.null(rec) || length(rec) == 0) return(NA_integer_)
+  rec <- rec[rec$status == "accepted" & !is.null(rec$status == "accepted"),]
+  if (length(rec) == 0) return(NA_integer_)
+  ranks_in_order <- intersect(rank_order, rec$rank)
+  if(length(ranks_in_order) == 0) return(rec) # fallback
+  return(rec[rec$rank == ranks_in_order[1],])  # Return the AphiaID of the first record with the highest rank
+}
+tax_aphia_id_lst <- pblapply(tax_without_id, get_valid_aphia)
+tax_aphia_id_dt <- rbindlist(lapply(tax_aphia_id_lst, as.data.table), fill = TRUE)
+selcols <- c("AphiaID","scientificname","status","rank","valid_name")
+
+tax_without_id[!tax_without_id %in% tax_aphia_id_dt$valid_name] # Missing taxa
+wm_records_name("Opisthobranchia")[,c("status","valid_name")] # taxon inquirendum => use higher taxonomic rank, being Class Gastropoda
+B_dt[is.na(aphiaid) & taxcode=="Opisthobranchia"]$aphiaid <- wm_records_name("Heterobranchia") %>% filter(status=="accepted") %>% select(AphiaID)
+wm_records_name("Pseudocuma")[wm_records_name("Pseudocuma")$rank=="Family",c("valid_name","valid_AphiaID")]  # => add taxon manually
+B_dt[is.na(aphiaid) & taxcode=="Pseudocuma"]$aphiaid <- 110384
+# tax_aphia_id_dt[valid_name %in% tax_without_id,..selcols]
+# tax_aphia_id_dt[!valid_name %in% tax_without_id,..selcols]
+
+B_dt[is.na(aphiaid)]$aphiaid <- tax_aphia_id_dt$AphiaID[match(B_dt[is.na(aphiaid)]$taxcode, tax_aphia_id_dt$valid_name, nomatch=NA_integer_)]
+
+selcols <- c(".id","station_name","replicate","year","month","aphiaid","biomass_g_per_sqm")
+B_dt <- B_dt[aphiaid!="NA" & !is.na(aphiaid),..selcols]
+
+saveRDS(B_dt, paste0(out_folder, "/biomass_dt.RDS"))
+
+
+```
+
+### Biological data B_dt
+Biological data are extracted from the third excel sheet from the respective Excel files in the Type 2 data folder. Records which did not included biomass data were excluded, which was the case for all or some records from two datasets: `r datasets_excluded`. Biomass data were converted to the same units using the *cl_description* from the metadata worksheet (@tbl-smpl_area). There were several input Excel files which did not have an Aphia-ID but only a taxon description. The taxon description was used with the `worrms` package to extract an accepted Aphia-ID using the highest to the lowest taxonomic rank. The taxon *Opisthobranchia* was replaced by *Heterobranchia*, and the Family rank of *Pseudocuma* was added manually.
+
+
+```{r, include=T}
+#| label: tbl-smpl_area
+#| tbl-cap: 'Sampled area by input Excel file'
+
+kable(to_table4,
+      format = "latex", booktabs = TRUE, escape = T 
+      ) %>%
+  kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
+
+```
+
+\newpage
+
+```{r biological trait databases}
+## Load biological trait databases ====
+trt_files <- list.files(traits_folder,  pattern = "\\.xlsx$|\\.xls$|\\.csv$", full.names = T, recursive = T)
+beauchard_legend <- read_excel(trt_files[6])
+trt_files <- trt_files[grepl("Foveau|Vaz|11877|Beauchard_SupplMat\\.xlsx$", trt_files)] # 4 trait databases
+
+read_csv_auto <- function(file) {read_delim(file, delim = NULL, show_col_types = FALSE)}
+read_any_file <- function(file) {
+  ext <- tolower(file_ext(file))
+  switch(ext,
+         "csv"  = read_csv_auto(file),
+         "xlsx" = read_excel(file),
+         "xls"  = read_excel(file),
+         stop("Unsupported file type: ", ext))}
+trt_sheets <- lapply(trt_files, read_any_file)
+names(trt_sheets) <- basename(trt_files)
+
+# Manually select all longevity traits => exclude Foveau
+lapply(trt_sheets, names)
+
+```
+
+```{r combined longevity traits}
+## COMPILE COMBINED biological trait database ====
+# Longevity traits when aphia-id is available (Vaz and Clare):
+long <- list()
+long[["vaz"]] <- trt_sheets[[2]][,c("aphiaID","meanL1", "meanL1.L3", "meanL3.L10", "meanL10","phylum","class","order","family","genus")]
+vaz_NAs <- long[["vaz"]][is.na(long[["vaz"]]$aphiaID),]
+vaz_NAs_aphiaids <- rbindlist((pblapply(c("Rissoidae","Hoplostethus","Terebellidae"), get_valid_aphia)))
+long[["vaz"]][is.na(long[["vaz"]]$aphiaID),]$aphiaID <- vaz_NAs_aphiaids[status=="accepted"]$AphiaID
+
+long[["clare"]] <- trt_sheets[[3]][,c("AphiaID","l_less_than_1","l1_to_3","l3_to_10","l_more_than_10","Phylum","Class","_Order","Family","Genus")]
+long[["clare"]][is.na(long[["clare"]]$AphiaID),]
+
+# Add aphia-id to beauchard's database:
+beauchard <- setDT(trt_sheets[[4]][,c("genus","species","LS")])
+stan_score <- beauchard_legend[beauchard_legend$trait=="LS",]$standardised_score
+beauchard[, longevity := stan_score[LS]]
+beauchard <- dcast(beauchard, genus+species~longevity, value.var = "longevity")
+beauchard[, sp := paste(genus, species,sep=" ")]
+beauchard[, sp := gsub(" sp.","",sp)]
+setnames(beauchard, c("0", "0.33", "0.67", "1"),
+         c("L1","L3","L10","L10plus"))
+beauchard_aphia_id_lst <- pblapply(beauchard$sp, get_valid_aphia)
+beauchard_aphia_id_dt <- rbindlist(lapply(beauchard_aphia_id_lst, as.data.table), fill = TRUE)
+# names(beauchard_aphia_id_dt)
+selcols <- c("valid_name","valid_AphiaID","phylum","class","order","family","genus","scientificname")
+beauchard_aphia_id_dt[!is.na(valid_name),..selcols]
+missing_taxa <- beauchard$sp[!beauchard$sp %in% beauchard_aphia_id_dt$valid_name] # Missing taxa
+# lapply(missing_taxa[!missing_taxa %in% c("Ampeliscanipes","Aporrhais serresianus","Gastrosaccusnifer","Munidaciosa",
+#                                          "Pontophilusnosus","Porania pulvillus","Pseudocuma longicorne")], 
+#        function(x)wm_records_name(x))
+# beauchard$sp[beauchard$sp %in% beauchard_aphia_id_dt$scientificname]
+
+setkey(beauchard, genus, sp)
+setkey(beauchard_aphia_id_dt, genus, scientificname)
+beauchard <- beauchard_aphia_id_dt[!is.na(valid_name),..selcols][beauchard]
+nrow(beauchard[is.na(valid_AphiaID)]) # 26 missing taxa 
+beauchard <- beauchard[!is.na(valid_AphiaID)]
+selcols <- c("valid_AphiaID","L1","L3","L10","L10plus","phylum","class","order","family","genus","scientificname")
+long[["beauchard"]] <- beauchard[,..selcols]
+setnafill(long[["beauchard"]],
+          type = "const", fill = 0,
+          cols = c("L1", "L3", "L10", "L10plus"))
+
+long[["vaz"]]$scientificname <- NA
+long[["clare"]]$scientificname <- NA
+
+long <- lapply(long, function(x){
+  names(x) <- c("aphiaid","L1","L3","L10","L10plus","phylum","class","order","family","genus","scientificname")
+  as.data.table(x)})
+long_dt <- rbindlist(long, idcol=T)
+long_dt <- long_dt[!is.na(aphiaid)] # redundant
+
+unique_aphias_orig <- length(unique(long_dt$aphiaid))
+common_aphiaid <- long_dt[, 
+                          uniqueN(.id), by = aphiaid]
+overlap_aphias_orig <- table(common_aphiaid$V1) #
+# to_plot <- long_dt[aphiaid %in% common_aphiaid[V1 %in% c(2,3), aphiaid]] # To enable comparison of the longevity classes (not done)
+
+round(table(duplicated(long_dt[,-1]))/nrow(long_dt),2)*100 # 10 %  duplicated records
+selcols <- c("aphiaid")
+round(table(duplicated(long_dt[,..selcols]))/nrow(long_dt[,..selcols]),2)*100 # 35 % duplicated taxa, 
+                                                           # implying that trait modalities differed between 65 % of overlapping taxa
+long_spp_dt <- long_dt[!is.na(scientificname),
+                         lapply(.SD,function(x)mean(x,na.rm=T)), # Take the mean over duplicated taxa
+                         by=.(aphiaid, phylum, class, order, family, genus, scientificname),
+                         .SDcols=c("L1","L3","L10","L10plus")]
+long_genus_dt <- long_dt[,
+                         lapply(.SD,function(x)mean(x,na.rm=T)), # Take the mean over duplicated taxa
+                         by=.(aphiaid, phylum, class, order, family, genus),
+                         .SDcols=c("L1","L3","L10","L10plus")]
+long_genus_dt[,scientificname := NA_character_]
+
+# Note that some taxonomic ranks differ even though the aphia-ids are the same ! => they have different longevities
+dbls <- long_genus_dt[duplicated(long_genus_dt$aphiaid) | duplicated(long_genus_dt$aphiaid,fromLast = T)]
+num_cols <- names(dbls)[sapply(dbls, is.numeric)]
+char_cols <- names(dbls)[sapply(dbls, is.character)]
+char_cols <- char_cols[!char_cols %in% "aphiaid"]
+char_agg_fun <- function(x) {
+  x <- x[!is.na(x)]
+  if (length(x) == 0) return(NA_character_)
+  x_unique <- unique(x)
+  if (length(x_unique) == 1) return(x_unique)
+  paste(x_unique, collapse = "%%")
+}
+dbls_toadd <- dbls[,
+                   c(lapply(.SD[, num_cols, with = FALSE], function(x) mean(x, na.rm = TRUE)),
+                     lapply(.SD[, char_cols, with = FALSE], char_agg_fun)), 
+                   by = .(aphiaid),
+                   .SDcols = c(num_cols, char_cols)]
+setcolorder(dbls_toadd, names(long_genus_dt))
+# Replace duplicates:
+long_genus_dt <- rbind(long_genus_dt[!(duplicated(long_genus_dt$aphiaid) | duplicated(long_genus_dt$aphiaid,fromLast = T))],
+                       dbls_toadd)
+
+long_dt <- rbind(long_genus_dt, long_spp_dt)
+
+saveRDS(long_dt, paste0(out_folder, "/long_dt.RDS"))
+
+```
+
+```{r adding traits to the B_dt}
+
+selcols <- c(".id","station_name","replicate","year","month","aphiaid","biomass_g_per_sqm")
+B_dt <- B_dt[,..selcols]
+if(any(duplicated(B_dt))){
+  B_dt[duplicated(B_dt) | duplicated(B_dt, fromLast = TRUE)] # See the duplicates
+  B_dt <- unique(B_dt) # remove duplicates
+}
+if(any(duplicated(long_dt))){
+  long_dt[duplicated(long_dt) | duplicated(long_dt, fromLast = TRUE)]
+  long_dt <- unique(long_dt) # remove duplicates
+}
+
+# Add traits using species' scientific names
+setkey(B_dt, aphiaid)
+setkey(long_dt, aphiaid)
+
+temp_dt <- long_dt[!is.na(scientificname)][B_dt]
+dim(B_dt)
+dim(temp_dt)
+B_spp_dt <- temp_dt[!is.na(scientificname)] # scientific names are given
+
+# Add traits using genus names
+B_gen_dt <- temp_dt[is.na(scientificname)]
+selcols <- names(B_dt)
+B_gen_dt <- B_gen_dt[,..selcols]
+
+setkey(B_gen_dt, aphiaid)
+setkey(long_dt, aphiaid)
+
+B_gen_dt <- long_dt[is.na(scientificname)][B_gen_dt]
+
+# Combine datasets with traits, given by spp or genus
+B_dt <- rbind(B_spp_dt, B_gen_dt)
+
+setcolorder(B_dt, c(".id","station_name","replicate","year","month","aphiaid","biomass_g_per_sqm","L1","L3","L10","L10plus","phylum","class","order","family","genus","scientificname"))
+saveRDS(B_dt, paste0(out_folder, "/biomass_long_dt.RDS"))
+
+
+```
+## Biological traits
+
+Four biological traits databases were loaded: Foveau et al (2020), Beauchard et al (2022), Clare et al (2022) and Vaz et al (2022.) Foveau et al (2020) did not include longevity as a trait. Three missing Aphia-IDs were added to Vaz et al (2022), for the Families Rissoidae and Terebellidae, and for the Genus Hoplostethus. Aphia-IDs were added to Beauchard et al (2022). All three databases had the four same trait modalities for longevity: longevity $\leq 1$, 1-3, 3-10 and $\geq 10$. All data were pooled into one datatable, and records without Aphia-ID were excluded. Trait scores were averaged over the records at species level (which is in principle redundant as it only comprises the database from Beauchard et al 2022), and then at genus level. For some records the Genera matched, but the lower taxonomic rank did not, e.g. the genus Calliactis was either categorized as the class Anthozoa, or Octocorallia. Both names were merged, and the duplicated records were replaced using the merged taxonomic name. Biological trait modalities from the combined longevity database were added to the biological biomass data.
+
+
