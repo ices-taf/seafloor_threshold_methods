@@ -1,7 +1,7 @@
 ---
-title: "Cumulative Biomass Distribution by longevity classes"
-subtitle: "Exploration for Type 2 data"
-author: "Jochen Depestele"
+title: "Pressure-State relationships for Type 2 data"
+subtitle: "INDICATOR: Long-lived biomass fraction"
+author: "Jochen Depestele, Jan Hiddink, Lorna McKellar, Daniel Van Denderen"
 date: today
 date-format: "D MMMM YYYY"
 format:
@@ -20,6 +20,8 @@ editor: visual
 ---
 
 ```{r SET-UP R-SESSION, echo=F,include=F}
+tosave=F
+
 # These folders are user-specific
 data_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/benthos_WKD6SCOPE/2026_WKBENTH4/"
 traits_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/traits_benth/"
@@ -28,12 +30,17 @@ if(all(dir.exists(paste0(data_folder,c("Type 1","Type2","Type3"))))){
 if(!all(dir.exists(c(traits_folder)))){
   cat("\n=> Locate all folders with traits information !\n ")}
 
+bathy_r <- terra::rast("C:/Users/jdepestele/OneDrive - ILVO/000_data/EMODnet-Bathymetry/EMODnet_bathymetry_proj4326_extended.tif")
+
+load("./drafts/RNV_thr_scripts_JGHiddink/threshold_depth_longevity_model.RData")
+
 in_folder <- "./input"
 out_folder <- "./output"
 
 # Packages ----
 library(readxl)
 library(data.table)
+library(terra)
 library(worrms)
 library(pbapply)
 library(tools)
@@ -41,6 +48,9 @@ library(readr)
 library(dplyr)
 library(ggplot2)
 library(kableExtra)
+library(boot)
+library(broom)
+library(betareg)
 
 ```
 
@@ -144,8 +154,14 @@ $$ where $ll_L = \log(L_{\text{upper},L})$, and $\alpha$ and $\beta$ are the int
 
 ```{r adding station info, echo=F,include=F}
 ## ADD STATION INFO (ONLY SAR INFORMATION !!) ####
-selcols <- c(".id", "station_name", "replicate", "year", "month", "gear_cat", "pressure_type", "pressure_value", "depth")
+selcols <- c(".id", "station_name", "replicate", "year", "month", "gear_cat", "pressure_type", "pressure_value", "depth", "longitude", "latitude")
 Stn_dt <- Stn_dt[,..selcols]
+
+## Estimate the missing depth values
+# terra::crs(bathy_r)
+pts <- vect(Stn_dt[is.na(depth)], geom = c("longitude", "latitude"), crs = terra::crs(bathy_r))
+Stn_dt[is.na(depth)]$depth <- (-terra::extract(bathy_r, pts)$bathydepth_m)
+
 Stn_dt <- Stn_dt[ .id %in% unique(B_dt$.id)]
 Stn_dt[, station_name := tolower(station_name)]
 unique(Stn_dt$pressure_type)
@@ -276,7 +292,7 @@ ggplot2::ggsave("./output/BiomassDistribution.png", unit="cm",width=30,height=20
 
 ```
 
-## Cumulative biomass distribution
+## Exploration of sample-based cumulative biomass distribution
 
 The cumulative biomass distribution at longevity was explored for 3 trawl and 12 grab studies (@fig-CumbExpl). The fishing intensity (SAR or trawl index) differed between and within studies. Stations with low fishing intensities are expected to have a higher biomass at higher longevities (blue curves shifting to the right of the graph), while highly fished stations are except to be shifted towards lower longevities (red curves shifting to the left). Visual inspection suggested that some patterns are performing as expected, such as the *bs_gotland_btrawling*, while others are not, e.g. *bobic_gulfofcadizsand_btrawling*.
 
@@ -347,7 +363,7 @@ B_ref <- B_dt[pressure_value <= refpres_Q15,
        #                               L10=temp$L10,
        #                               L10plus=temp$L10plus))
        L_dt <- data.table(data.frame(L1=L1, L3=L3, L10=L10, L10plus=L10plus))
-       L_dt[, 
+       L_dt[,
             (Lclasses) := {
               cs <- t(apply(.SD, 1, cumsum))
               rs <- rowSums(.SD, na.rm=T)
@@ -360,25 +376,101 @@ B_ref <- B_dt[pressure_value <= refpres_Q15,
        L_dt[,ll:=log(as.numeric(gsub("L","",Lclasses)))]
        suppressWarnings(mod <- glm(Cumb~ll, family = binomial, data = L_dt))
        # ggplot() +
-       #   geom_line(data=data.frame(x=log(seq(1,100,0.1)), 
+       #   geom_line(data=data.frame(x=log(seq(1,100,0.1)),
        #                             y=predict(mod, newdata = data.frame(ll=log(seq(1,100,0.1))),type="response",se=T)),
        #             aes(exp(x),y.fit)) + lims(x=c(0,10))
-       resp_int <- coef(mod)["(Intercept)"]
-       resp_slope <- coef(mod)["ll"]
-       step.size=.01
-       longevity=seq(1,200,by=step.size)
-       r = 5.31/longevity
-       K = (resp_slope*exp(resp_slope * log(longevity)+resp_int))/(longevity * (exp(resp_slope*log(longevity) + resp_int) + 1)^2)
-       idx <- c(which(abs(cumsum(K)/sum(K) - 0.9) == min(abs(cumsum(K)/sum(K) - 0.9))):length(K))
-       K_sen <- round(K[idx]/sum(K[idx]*step.size),2)
-       K_sen <- sum(K_sen)*step.size
-       long_Ksen <- min(longevity[idx])
+       ref_int <- coef(mod)["(Intercept)"]
+       ref_slope <- coef(mod)["ll"]
+       # step.size=.01
+       # longevity=seq(1,200,by=step.size)
+       # r = 5.31/longevity
+       # K = (ref_slope*exp(ref_slope * log(longevity)+ref_int))/(longevity * (exp(ref_slope*log(longevity) + ref_int) + 1)^2)
+       # idx <- c(which(abs(cumsum(K)/sum(K) - 0.9) == min(abs(cumsum(K)/sum(K) - 0.9))):length(K))
+       # K_sen <- round(K[idx]/sum(K[idx]*step.size),2)
+       # K_sen <- Tmax.at.sen <- sum(K_sen)*step.size
+       # long_Ksen <- min(longevity[idx])
+
        pval <- summary(mod)$coefficients["ll","Pr(>|z|)"]
        refpres_Q15 <- unique(refpres_Q15)
-       .(resp_int, resp_slope, pval, K_sen, refpres_Q15, long_Ksen)
+       .(ref_int, ref_slope, pval
+         # , K_sen, long_Ksen
+         , refpres_Q15, depth) # , ref_biomass.weighted.Tmax.at.sen, ref_lifespan.int, RBSsen.threshold.50, RBSsen.threshold.90
      },
      by = .(.id, gear_cat, pressure_type)]
+
+B_ref[, long_Ksen := exp((log(9) - ref_int) / ref_slope) ]
+summary(B_ref$long_Ksen)
+
+step.size <- 0.01
+longevity_vec <- seq(1, 200, by = step.size)
+B_ref[, row_id := .I]
+CJ_dt <- CJ(
+  row_id = B_ref$row_id,
+  longevity = longevity_vec
+)[B_ref, on = "row_id"]
+CJ_dt[, K := (ref_slope * exp(ref_slope * log(longevity) + ref_int)) /
+        (longevity * (exp(ref_slope * log(longevity) + ref_int) + 1)^2)]
+lifespan_dt <- CJ_dt[longevity > long_Ksen,
+                     .(ref_biomass.weighted.Tmax.at.sen = sum(longevity * K) / sum(K)),
+                     by = row_id]
+lifespan_dt[, ref_lifespan.int := ref_biomass.weighted.Tmax.at.sen ^ -0.5 ]
+pred_input <- B_ref[lifespan_dt,
+                    on = "row_id"][, .(row_id, gear_cat, depth, ref_lifespan.int)]
+# pred_input[,c("mu","phi") := NA_real_]
+# roworder <- pred_input$row_id
+# if(any(pred_input$gear_cat %in% "trawl")){
+#     temp <- pred_input[gear_cat=="trawl",.(depth, ref_lifespan.int)]
+#   mu <- predict(m1,
+#                 newdata = data.frame(depth.m = temp$depth, lifespan.int = temp$ref_lifespan.int),
+#                 type = "response")
+#   phi <- predict(m1,
+#                  newdata = data.frame(depth.m = temp$depth,lifespan.int = temp$ref_lifespan.int),
+#                  type = "precision")
+#   pred_input[gear_cat=="trawl", ]$mu <- mu
+#   pred_input[gear_cat=="trawl", ]$phi <- phi
+#   } # end if condition trawl
+# 
+# # In case there would be an epifaunal (m1) and infaunal (m2) model
+# if(any(pred_input$gear_cat %in% "grab")){
+#     temp <- pred_input[gear_cat=="grab",.(depth, ref_lifespan.int)]
+#     mu <- predict(m1,
+#                   newdata = data.frame(depth.m = temp$depth, lifespan.int = temp$ref_lifespan.int),
+#                   type = "response")
+#     phi <- predict(m1,
+#                    newdata = data.frame(depth.m = temp$depth,lifespan.int = temp$ref_lifespan.int),
+#                    type = "precision")
+#     pred_input[gear_cat=="grab", ]$mu <- mu
+#     pred_input[gear_cat=="grab", ]$phi <- phi
+#     } # end if condition grab
+# pred_input <- pred_input[match(roworder, row_id)] # should be redundant
+# mu <- pred_input$mu
+# phi <- pred_input$phi
+
+mu <- predict(m1,
+              newdata = data.frame(depth.m = pred_input$depth, lifespan.int = pred_input$ref_lifespan.int),
+              type = "response")
+phi <- predict(m1,
+               newdata = data.frame(depth.m = pred_input$depth,lifespan.int = pred_input$ref_lifespan.int),
+               type = "precision")
+
+alpha_betreg <- mu * phi
+beta_betreg  <- (1 - mu) * phi
+
+RBSsen.threshold.50 <- qbeta(0.50, alpha_betreg, beta_betreg)
+RBSsen.threshold.90 <- qbeta(0.90, alpha_betreg, beta_betreg)
+B_ref[, `:=`(alpha_betreg = alpha_betreg, beta_betreg = beta_betreg, 
+             RBSsen.threshold.50 = RBSsen.threshold.50, RBSsen.threshold.90 = RBSsen.threshold.90)]
+
 B_ref
+
+# extract summary statistics across ref samples
+B_ref <- B_ref[,as.list(unlist(lapply(.SD, summary))),
+               by = c(".id", "pressure_type", "gear_cat", 
+                      "long_Ksen", "ref_int", "ref_slope", "refpres_Q15"), # longevities were estimated for all reference values together
+               .SDcols = c("alpha_betreg","beta_betreg", 
+                           "RBSsen.threshold.50", "RBSsen.threshold.90")] # 
+selcols <- names(B_ref)[!grepl("Min|Max|_betreg.Mean|_betreg.1st|_betreg.3rd", names(B_ref))]
+B_ref <- B_ref[,..selcols]
 
 # to_report: B_ref provide the longevity equal to RBSsens for a reference pressure that is the 15% quantile.
 selcols <- c(".id","gear_cat","pressure_type","refpres_Q15","long_Ksen")
@@ -415,11 +507,17 @@ kable(to_table1,
 ## Relative long-lived biomass over a fishing gradient
 
 ```{r relative longlived biomass, include=F, echo=F}
-selcols <- c(".id","gear_cat","pressure_type","long_Ksen")
+selcols <- c(".id","gear_cat","pressure_type","long_Ksen", "ref_int", "ref_slope", "alpha_betreg.Median", "beta_betreg.Median", 
+             names(B_ref)[grepl("RBSsen.threshold",names(B_ref))])
 B_dt <- B_ref[,..selcols][B_dt, on=c(".id", "gear_cat", "pressure_type")]
 
-
 B_dt[,biom_Ksens := f_biom_above_long(long_Ksen, lintercept, lslope)]
+
+B_dt[, `:=` (
+  RBSsen.probability.GES = qbeta(biom_Ksens, shape1 = alpha_betreg.Median, shape2 = beta_betreg.Median),            # chance of being in good state
+  RBSsen.GES.thr50 = ifelse(biom_Ksens > RBSsen.threshold.50.Median, 1, 0) # GES yes or no?
+)]
+
 
 # ggplot(B_dt, aes(biom_Ksens)) + geom_histogram(bins=50)
 
@@ -442,15 +540,17 @@ B_dt[,rel_biom_Ksens := biom_Ksens / mean_biom_Ksens_ref]
 
 ```{r pressure-state model and SAR-thresholds, echo=F, include=F}
 
-thr_dt <- data.table(.id = unique(B_dt$.id),
-                     SEL_THR = 0.8
-                     )
-thr_dt <- data.table(.id = unique(B_dt$.id),
-                     SEL_THR = sample(seq(0.5, 0.99, 0.01), size=length(unique(B_dt$.id)), replace=T)
-                     )
-thr_dt
+## Simulations
+# thr_dt <- data.table(.id = unique(B_dt$.id),
+#                      SEL_THR = 0.8
+#                      )
+# thr_dt <- data.table(.id = unique(B_dt$.id),
+#                      SEL_THR = sample(seq(0.5, 0.99, 0.01), size=length(unique(B_dt$.id)), replace=T)
+#                      )
+# thr_dt
+# B_dt <- thr_dt[B_dt, on=".id"]
 
-B_dt <- thr_dt[B_dt, on=".id"]
+B_dt[, SEL_THR := RBSsen.threshold.50.Median]
 
 
 # Fit GLM per group and get predicted values + CI
@@ -463,6 +563,9 @@ B_pred <- B_dt[pressure_type %in% c("SAR", "trawl_index", "O2_depl") & !(.id %in
                  # Store intercept, slope, p-value, 15% quantile
                  resp_int <- coef(m)["(Intercept)"]
                  resp_slope <- coef(m)["pressure_value"]
+                 resp_se    <- summary(m)$coefficients["pressure_value", "Std. Error"]
+                 slope_lwr <- resp_slope - 1.96 * resp_se
+                 slope_upr <- resp_slope + 1.96 * resp_se
                  pval <- s$coefficients["pressure_value","Pr(>|t|)"]
                  refpres_Q15 <- round(quantile(pressure_value, .15),2)
                  max_pres <- max(pressure_value, na.rm=T)
@@ -484,24 +587,15 @@ B_pred <- B_dt[pressure_type %in% c("SAR", "trawl_index", "O2_depl") & !(.id %in
                  resp_upper <- exp(log_upper)
                  resp_lower <- exp(log_lower)
                  
+                # # Assess if each sample is within the threshold or not.
+                # RBSsen.probability.GES <- qbeta(PD_sens, shape1 = alpha_betreg, shape2 = beta_betreg)            # chance of being in good state #=> to be assessed by sample
+                # RBSsen.GES <- 0
+                # RBSsen.GES[PD_sens>RBSsen.threshold.50 ] <- 1
+
                  # What SAR at the threshold?
                  SAR_at_THR_pred = (log(unique(SEL_THR) + 1e-6)) / resp_slope  # THRESHOLD MUST BE SPECIFIC BY .id, gear_cat, pressure_type
-                 # CI of SAR threshold?
-                 library(boot)
-                 inv_pred <- function(data, indices) {
-                   d <- data[indices, ]
-                   m_boot <- glm(log(biom_Ksens + 1e-6) ~ pressure_value,
-                                 family = gaussian,
-                                 data = d)
-                   b <- coef(m_boot)
-                   log(unique(SEL_THR)) / b[2] # THRESHOLD MUST BE SPECIFIC BY .id, gear_cat, pressure_type
-                   }
-                 boot_res <- boot(data = data.frame(biom_Ksens     = biom_Ksens,
-                                                    pressure_value = pressure_value),
-                                  statistic = inv_pred, R = 1000)
-                 ci <- boot.ci(boot_res, type = "bca")
-                 SAR_at_THR_lower <- ci$bca[4]
-                 SAR_at_THR_upper <- ci$bca[5]
+                 SAR_at_THR_lower <- (log(unique(SEL_THR) + 1e-6)) / slope_upr
+                 SAR_at_THR_upper <- (log(unique(SEL_THR) + 1e-6)) / slope_lwr
 
                  # Return as a data.table
                  .(pressure_value = x_seq,
@@ -513,8 +607,8 @@ B_pred <- B_dt[pressure_type %in% c("SAR", "trawl_index", "O2_depl") & !(.id %in
                    resp_slope = resp_slope,
                    pval = pval,
                    refpres_Q15 = refpres_Q15,
-                   SAR_at_THR_pred=SAR_at_THR_pred,
                    SAR_at_THR_lower=SAR_at_THR_lower,
+                   SAR_at_THR_pred=SAR_at_THR_pred,
                    SAR_at_THR_upper=SAR_at_THR_upper,
                    max_pres = max_pres
                    )
@@ -533,13 +627,24 @@ num_cols <- names(to_table2)[sapply(to_table2, is.numeric)]
 num_cols <- num_cols[!num_cols %in% c("pval")]
 to_table2[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
 to_table2[, ("pval") := lapply(.SD, round, digits = 7), .SDcols = "pval"]
-selcols <- c(".id","pressure_type","resp_slope","pval", "SAR_at_THR_lower", "SAR_at_THR_pred", "SAR_at_THR_upper")
+selcols <- c(".id","pressure_type", "gear_cat", "resp_slope","pval", "SAR_at_THR_lower", "SAR_at_THR_pred", "SAR_at_THR_upper")
 to_table2[pval>=0.05, 
           c("SAR_at_THR_lower", "SAR_at_THR_pred", "SAR_at_THR_upper") := NA]
 to_table2 <- to_table2[order(pval) ,..selcols]
-to_table2 <- thr_dt[to_table2, on=".id"]
+selcols <- c(".id","SEL_THR")
+to_table2 <- unique(B_dt[,..selcols])[to_table2, on=".id"]
 to_table2 <- to_table2[! pressure_type %in% c("O2_depl"),]
+toplot_table2 <- copy(to_table2)
+selcols <- names(to_table2)[grepl("SAR_at_THR",names(to_table2))]
+to_table2[,
+          (selcols):=lapply(.SD, function(x)ifelse(is.na(x), "-",ifelse(x >= 10, ">10", as.character(pmax(0, x))))),
+          .SDcols=selcols]
 to_table2
+toplot_table2[,
+              (selcols):=lapply(.SD, function(x)ifelse(is.na(x), NA,pmax(x, 0))),
+              .SDcols=selcols]
+toplot_table2
+
 
 # ---------------------------------------------------
 # Step 1: Compute per-facet maximum y
@@ -547,12 +652,17 @@ to_table2
 facet_max <- B_dt %>%
   group_by(pressure_type, .id) %>%
   summarise(max_y = max(rel_biom_Ksens, na.rm = TRUE), .groups = "drop")
+facet_max_x <- B_dt %>%
+  group_by(.id, gear_cat) %>%
+  summarise(max_x = max(pressure_value, na.rm = TRUE), .groups = "drop")
 
 # ---------------------------------------------------
 # Step 2: Merge max_y into predictions
 # ---------------------------------------------------
 B_pred2 <- B_pred %>%
   left_join(facet_max, by = c("pressure_type", ".id"))
+toplot_table2 <- toplot_table2 %>%
+  left_join(facet_max_x, by = c(".id", "gear_cat"))
 
 # ---------------------------------------------------
 # Step 3: Cap predictions and ribbons at per-facet max
@@ -562,6 +672,12 @@ B_pred2 <- B_pred2 %>%
     y_pred   = pmin(y_pred, max_y),
     y_upper  = pmin(y_upper, max_y)
   )
+toplot_table2 <- toplot_table2 %>%
+  mutate(
+    SAR_at_THR_lower = pmin(SAR_at_THR_lower, max_x),
+    SAR_at_THR_upper = pmin(SAR_at_THR_upper, max_x),
+    SAR_at_THR_pred  = pmin(SAR_at_THR_pred, max_x)
+  )
 
 # ---------------------------------------------------
 # Step 4: Plot
@@ -569,42 +685,67 @@ B_pred2 <- B_pred2 %>%
 ggplot(B_pred2[((pressure_type %in% c("SAR") & pressure_value < ceiling(max_pres)+0.5) | # ,"O2_depl"
                 (pressure_type %in% c("trawl_index")))], 
        aes(x = pressure_value, y = y_pred, group = .id)) +
-  geom_ribbon(aes(ymin = y_lower, ymax = y_upper), fill = "firebrick4", alpha = 0.2) +
-  geom_line(color = "firebrick4", linewidth = 1) +
+  geom_ribbon(aes(ymin = y_lower, ymax = y_upper), fill = "#1F5AA6", alpha = 0.2) +
+  geom_line(color = "#1F5AA6", linewidth = 1) +
   geom_point(data = B_dt[pressure_type %in% c("SAR", "trawl_index") & # ,"O2_depl"
                          !(.id %in% sel_id_multi_pres)],
              aes(x = pressure_value, y = rel_biom_Ksens, shape = factor(ref)),
-             color = "grey25") +
-  facet_wrap(gear_cat ~ .id, scales = "free") +
+             color = "grey33") +
+  geom_hline(yintercept = 1, linetype=2, col="grey33") +
+  geom_hline(data=toplot_table2, aes(yintercept = SEL_THR), 
+             col="#B44A3A") +
+  geom_rect(data = toplot_table2, 
+            aes(xmin = SAR_at_THR_lower, xmax = SAR_at_THR_upper, ymin = -Inf, ymax = Inf),
+            fill = "grey75", alpha = 0.25, inherit.aes = FALSE) +
+  geom_vline(data = toplot_table2, aes(xintercept = SAR_at_THR_pred), col="grey75") +
+               facet_wrap(gear_cat ~ .id, scales = "free") +
   scale_shape_manual(values = c(16, 1)) +
   theme_bw() +
   theme(legend.position = "none") +
   labs(title = "Log-normal Regression with 95% CI",
-       y = "Ratio of Longlived biomass fraction in sample \nto mean over reference samples",
+       y = "Ratio of long-lived biomass fraction in sample \nto mean over reference samples",
        x = "SAR (except ns_silverpit_btrawling: trawling index)")
 
 ggplot2::ggsave("./output/pressure_state_fishing.png", unit="cm",width=30,height=20)
 
 #
-save(B_dt, B_pred, B_pred2, file = "./output/Biomass_inoutput_model.Rdata")
+if(tosave)save(B_dt, B_pred, B_pred2, file = "./output/Biomass_inoutput_model.Rdata")
 
 
 ```
 
-The longlived biomass in each samples was estimated from the longevity of the top 10 % long-lived biomass fraction in low-disturbed samples, and the sample-specific cumulative longevity biomass distributions. The relative longlived biomass fractions were estimated by dividing longlived biomass with the mean longlived biomass fraction of the low-disturbed samples. The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of relative long-lived biomass as a linear function of pressure: $\log(\text{RelativeLonglivedBiomass}) = \beta \cdot \text{pressure} + \varepsilon$ with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+The sample-based long-lived biomass was estimated using the the sampled-based cumulative biomass distributions (@fig-CumbExpl) and the longevities of the top 10 % long-lived biomass estimated for low-disturbance samples (@tbl-table_Qpres). The sample-based long-lived biomass fractions were divided by the mean long-lived biomass fraction of the low-disturbed samples to enable comparisons across datasets, and used as response variable for the pressure-state relationships.
+
+The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of relative long-lived biomass as a linear function of pressure: 
+$$
+\log(\text{RelativeLonglivedBiomass}) = \beta \cdot \text{pressure} + \varepsilon
+$$
+with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
 
 The slope of the pressure-state response curves was negative in `r nrow(to_table2[resp_slope<0])` out of `r nrow(to_table2)` datasets, and significant at $P \leq 0.05$ for `r nrow(to_table2[pval<0.05])` datasets (@tbl-PresStat_SAR, @fig-PresStat_SAR). 
 
-SAR-levels associated with case-specific threshold on longlived biomass were estimated using the inverted fitted relationship $\text{Pressure}_{\text{thr}} = \log(\text{Biomass}_{thr}) / \beta$. To quantify uncertainty around the estimated pressure value at which the biomass threshold was reached, a nonparametric bootstrap procedure was applied. For each combination of site (`.id`), gear category, and pressure type, the original dataset was resampled with replacement 1,000 times. For each bootstrap replicate, a generalized linear model with Gaussian errors was refitted on the log-transformed response. From each fitted model, the slope parameter $\beta$ was extracted and used to compute the pressure value corresponding to the predefined biomass threshold (*Type 1* data) by inverting the fitted relationship $\text{Pressure}_{\text{thr}} = \log(\text{Biomass}_{thr}) / \beta$. This yielded an empirical bootstrap distribution of threshold pressure estimates. Bias-corrected and accelerated (BCa) 95 % confidence intervals were then calculated from this distribution using the `boot` package.
+The thresholds of the long-lived biomass fractions ($Lf_{thr}$) were estimated for each dataset from the threshold-models developed for infauna and epifauna using Type-1 data (@tbl-thr_mod), the sample-specific depths and the longevity estimates of the reference samples (@tbl-table_Qpres). The median threshold of the long-lived biomass fraction (related to RBS sensitivity) was calculated as $Lf_{thr}=\text{Threshold}_{0.50} = Q_{0.50}(\text{Beta}(\alpha, \beta))$, where $Q_{0.50}$ denotes the 50th percentile of the beta distribution, or 50 % of being in good state.
 
+The thresholds of long-lived biomass fraction ($Lf_{thr}$) and the pressure-state relationships of each dataset (@fig-PresStat_SAR) were used to estimate the associated SAR-thresholds with 95 % Confidence Intervals using the 95 % CI from the pressure-state relationships. SAR-thresholds wtih 95 % CI were only estimated when inverted fitted relationships were significant ($P \leq 0.05$) using $\text{Pressure}_{\text{thr}} = \log(\text{Biomass}_{thr}) / \beta$ with $\beta$ being the slope parameters (@tbl-PresStat_SAR). 
+
+
+```{r tabulate Type-1 threshold model, echo=F, include=T}
+#| label: tbl-thr_mod
+#| tbl-cap: 'Beta regression results for thresholds'
+#| tbl-pos: H
+
+tidy(m1) |>
+  kable(digits = 3)
+
+```
 
 ```{r, include=T}
 #| label: tbl-PresStat_SAR
-#| tbl-cap: 'Slopes of pressure-state curves and pressures/SAR thresholds inferred from longlived biomass thresholds (current thresholds are random, but they should come from Type-1 data)'
+#| tbl-cap: 'Slopes of pressure-state curves and pressures/SAR thresholds inferred from long-lived biomass thresholds estimated using Type-1 data'
 #| tbl-pos: H
 
 # build header vector
-kable(to_table2,
+kable(to_table2[, -c(4)],
   format = "latex",
   booktabs = TRUE,
   col.names = c("ID data set", "Type 1 informed thresholds", "Pressure type", 
@@ -621,52 +762,66 @@ kable(to_table2,
 ![Relative response curve by submitted Type-2 dataset over a trawling gradient.](./output/pressure_state_fishing.png){#fig-PresStat_SAR fig-pos="H"}
 
 ```{r prepare input to Excels, include=F, echo=F}
-
-## ORIGINAL INPUT FILES:
-d_files <- list.files(paste0(data_folder,"Type2"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
-d_files <- d_files[!grepl("_old", d_files)]
-Stn_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[2]))
-names(Stn_lst) <- gsub("\\.xlsx","",basename(d_files))
-Stn_lst <- lapply(Stn_lst, function(df) {
-  names(df) <- tolower(names(df)) # Lowercase column names
-  df})
-col_freq <- table(unlist(lapply(Stn_lst, names)))
-sort(col_freq)
-basecols <- names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
-basecols <- c(basecols, "aphiaid","taxcode", "month")
-basecols <- c(basecols, c("pressure_value",paste0("pressure_value",c("1","2"))), "month")
-Stn_dt <- rbindlist(
-  lapply(Stn_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
-  idcol = T,
-  fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
-Stn_dt
-
-## DATA TO COPY-PASTE BACK IN:
-# Input to the WKBENTH4 Excels:
-names(B_dt)
-# ".id"                 "SEL_THR"             "gear_cat"            "pressure_type"       "long_Ksen"           "station_name"        "year"                "pressure_value"      "depth"
-# "replicate"           "L1"                  "L3"                  "L10"                 "L10plus"             "lintercept"          "lslope"              "refpres_Q10"
-# "refpres_Q15"               "refpres_Q25"         "biom_Ksens"          "ref"                 "mean_biom_Ksens_ref" "rel_biom_Ksens" 
-selcols <- c(".id","station_name", "biom_Ksens", "rel_biom_Ksens")
-to_transfer <- B_dt
-# seldat <- sort(unique(B_dt$.id))[1]
-# to_transfer <- B_dt[.id %in% seldat]
-to_transfer <- to_transfer[, ..selcols]
-num_cols <- names(to_transfer)[sapply(to_transfer, is.numeric)]
-table(to_transfer$rel_biom_Ksens==0)
-to_transfer[, lapply(.SD, round, digits = 6), .SDcols = num_cols]
-# to_transfer[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
-to_transfer
-
-
-seldat <- sort(unique(B_dt$.id))[1]
-Stn_dt[tolower(.id) %in% seldat]
-to_transfer[.id %in% seldat]
-
-dim(Stn_dt[tolower(.id) %in% seldat])
-dim(to_transfer[.id %in% seldat])
-
-
-
+  # 
+  # ## ORIGINAL INPUT FILES:
+  # d_files <- list.files(paste0(data_folder,"Type2"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
+  # d_files <- d_files[!grepl("_old", d_files)]
+  # Stn_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[2]))
+  # names(Stn_lst) <- gsub("\\.xlsx","",basename(d_files))
+  # Stn_lst <- lapply(Stn_lst, function(df) {
+  #   names(df) <- tolower(names(df)) # Lowercase column names
+  #   df})
+  # col_freq <- table(unlist(lapply(Stn_lst, names)))
+  # sort(col_freq)
+  # basecols <- names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
+  # basecols <- c(basecols, "aphiaid","taxcode", "month")
+  # basecols <- c(basecols, c("pressure_value",paste0("pressure_value",c("1","2"))), "month")
+  # Stn_dt <- rbindlist(
+  #   lapply(Stn_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
+  #   idcol = T,
+  #   fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
+  # Stn_dt
+  # 
+  # ## DATA TO COPY-PASTE BACK IN:
+  # # Input to the WKBENTH4 Excels:
+  # names(B_dt)
+  # # ".id"                 "SEL_THR"             "gear_cat"            "pressure_type"       "long_Ksen"           "station_name"        "year"                "pressure_value"      "depth"
+  # # "replicate"           "L1"                  "L3"                  "L10"                 "L10plus"             "lintercept"          "lslope"              "refpres_Q10"
+  # # "refpres_Q15"               "refpres_Q25"         "biom_Ksens"          "ref"                 "mean_biom_Ksens_ref" "rel_biom_Ksens" 
+  # selcols <- c(".id","station_name", "biom_Ksens", "rel_biom_Ksens", "year")
+  # to_transfer <- B_dt
+  # # seldat <- sort(unique(B_dt$.id))[1]
+  # # to_transfer <- B_dt[.id %in% seldat]
+  # to_transfer <- to_transfer[, ..selcols]
+  # num_cols <- names(to_transfer)[sapply(to_transfer, is.numeric)]
+  # table(to_transfer$rel_biom_Ksens==0)
+  # to_transfer[, lapply(.SD, round, digits = 6), .SDcols = num_cols]
+  # # to_transfer[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
+  # to_transfer
+  # 
+  # 
+  # seldat <- sort(unique(B_dt$.id))[15]
+  # seldat
+  # Stn_dt[tolower(.id) %in% seldat]
+  # to_transfer[.id %in% seldat]
+  # to_transfer <- to_transfer[order(station_name)]
+  # dim(Stn_dt[tolower(.id) %in% seldat])
+  # dim(to_transfer[.id %in% seldat])
+  # View(to_transfer[.id %in% seldat])
+  # to_transfer[,c("station_name","month"):=tstrsplit(station_name, "_M")]
+  # to_transfer[,month:=as.numeric(month)]
+  # View(to_transfer[.id %in% seldat,][order(station_name,month)])
+  # writeClipboard(as.character(to_transfer[.id %in% seldat]$rel_biom_Ksens))
+  # writeClipboard(as.character(to_transfer[.id %in% seldat]$station_name))
+  # writeClipboard(as.character(to_transfer[.id %in% seldat]$month))
+  # 
+  # 
+  # # Estimate the mean over the replicates for NS_BfN_grab_btrawling:
+  # writeClipboard(as.character(to_transfer[.id %in% seldat,
+  #             lapply(.SD, mean),
+  #             by=.(station_name),
+  #             .SDcols=c("rel_biom_Ksens")]$rel_biom_Ksens))
+  # 
+  # 
 
 ```
