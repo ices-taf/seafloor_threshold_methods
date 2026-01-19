@@ -17,7 +17,7 @@ execute:
   message: false
   include: false
 editor: visual
---- 
+---
 
 ```{r SET-UP R-SESSION}
 # These folders are user-specific
@@ -144,9 +144,7 @@ saveRDS(Stn_dt, paste0(out_folder, "/station_dt.RDS"))
 # Loading Type 2 data
 
 ## Metadata, stations and biological data
-
 ### Stations Stn_dt
-
 The stations were loaded from the respective station worksheets and pooled into one datatable. There are four pressure types (@tbl-pressuretypes), which were sampled with a range of grabs or trawls (@tbl-smpl_gears) that were categorized as grab and trawls (@tbl-smpl_gears_revised).
 
 ```{r, include=T}
@@ -271,8 +269,8 @@ saveRDS(B_dt, paste0(out_folder, "/biomass_dt.RDS"))
 ```
 
 ### Biological data B_dt
-
 Biological data are extracted from the third excel sheet from the respective Excel files in the Type 2 data folder. Records which did not included biomass data were excluded, which was the case for all or some records from two datasets: `r datasets_excluded`. Biomass data were converted to the same units using the *cl_description* from the metadata worksheet (@tbl-smpl_area). There were several input Excel files which did not have an Aphia-ID but only a taxon description. The taxon description was used with the `worrms` package to extract an accepted Aphia-ID using the highest to the lowest taxonomic rank. The taxon *Opisthobranchia* was replaced by *Heterobranchia*, and the Family rank of *Pseudocuma* was added manually.
+
 
 ```{r, include=T}
 #| label: tbl-smpl_area
@@ -449,7 +447,8 @@ saveRDS(B_dt, paste0(out_folder, "/biomass_long_dt.RDS"))
 
 
 ```
-
 ## Biological traits
 
 Four biological traits databases were loaded: Foveau et al (2020), Beauchard et al (2022), Clare et al (2022) and Vaz et al (2022.) Foveau et al (2020) did not include longevity as a trait. Three missing Aphia-IDs were added to Vaz et al (2022), for the Families Rissoidae and Terebellidae, and for the Genus Hoplostethus. Aphia-IDs were added to Beauchard et al (2022). All three databases had the four same trait modalities for longevity: longevity $\leq 1$, 1-3, 3-10 and $\geq 10$. All data were pooled into one datatable, and records without Aphia-ID were excluded. Trait scores were averaged over the records at species level (which is in principle redundant as it only comprises the database from Beauchard et al 2022), and then at genus level. For some records the Genera matched, but the lower taxonomic rank did not, e.g. the genus Calliactis was either categorized as the class Anthozoa, or Octocorallia. Both names were merged, and the duplicated records were replaced using the merged taxonomic name. Biological trait modalities from the combined longevity database were added to the biological biomass data.
+
+

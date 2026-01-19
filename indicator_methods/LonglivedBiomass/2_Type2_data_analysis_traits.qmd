@@ -20,7 +20,7 @@ editor: visual
 ---
 
 ```{r SET-UP R-SESSION, echo=F,include=F}
-tosave=F
+tosave=T
 
 # These folders are user-specific
 data_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/benthos_WKD6SCOPE/2026_WKBENTH4/"
@@ -763,65 +763,65 @@ kable(to_table2[, -c(4)],
 
 ```{r prepare input to Excels, include=F, echo=F}
   # 
-  # ## ORIGINAL INPUT FILES:
-  # d_files <- list.files(paste0(data_folder,"Type2"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
-  # d_files <- d_files[!grepl("_old", d_files)]
-  # Stn_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[2]))
-  # names(Stn_lst) <- gsub("\\.xlsx","",basename(d_files))
-  # Stn_lst <- lapply(Stn_lst, function(df) {
-  #   names(df) <- tolower(names(df)) # Lowercase column names
-  #   df})
-  # col_freq <- table(unlist(lapply(Stn_lst, names)))
-  # sort(col_freq)
-  # basecols <- names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
-  # basecols <- c(basecols, "aphiaid","taxcode", "month")
-  # basecols <- c(basecols, c("pressure_value",paste0("pressure_value",c("1","2"))), "month")
-  # Stn_dt <- rbindlist(
-  #   lapply(Stn_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
-  #   idcol = T,
-  #   fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
-  # Stn_dt
-  # 
-  # ## DATA TO COPY-PASTE BACK IN:
-  # # Input to the WKBENTH4 Excels:
-  # names(B_dt)
-  # # ".id"                 "SEL_THR"             "gear_cat"            "pressure_type"       "long_Ksen"           "station_name"        "year"                "pressure_value"      "depth"
-  # # "replicate"           "L1"                  "L3"                  "L10"                 "L10plus"             "lintercept"          "lslope"              "refpres_Q10"
-  # # "refpres_Q15"               "refpres_Q25"         "biom_Ksens"          "ref"                 "mean_biom_Ksens_ref" "rel_biom_Ksens" 
-  # selcols <- c(".id","station_name", "biom_Ksens", "rel_biom_Ksens", "year")
-  # to_transfer <- B_dt
-  # # seldat <- sort(unique(B_dt$.id))[1]
-  # # to_transfer <- B_dt[.id %in% seldat]
-  # to_transfer <- to_transfer[, ..selcols]
-  # num_cols <- names(to_transfer)[sapply(to_transfer, is.numeric)]
-  # table(to_transfer$rel_biom_Ksens==0)
-  # to_transfer[, lapply(.SD, round, digits = 6), .SDcols = num_cols]
-  # # to_transfer[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
-  # to_transfer
-  # 
-  # 
-  # seldat <- sort(unique(B_dt$.id))[15]
-  # seldat
-  # Stn_dt[tolower(.id) %in% seldat]
-  # to_transfer[.id %in% seldat]
-  # to_transfer <- to_transfer[order(station_name)]
-  # dim(Stn_dt[tolower(.id) %in% seldat])
-  # dim(to_transfer[.id %in% seldat])
+  ## ORIGINAL INPUT FILES:
+  d_files <- list.files(paste0(data_folder,"Type2"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
+  d_files <- d_files[!grepl("_old", d_files)]
+  Stn_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[2]))
+  names(Stn_lst) <- gsub("\\.xlsx","",basename(d_files))
+  Stn_lst <- lapply(Stn_lst, function(df) {
+    names(df) <- tolower(names(df)) # Lowercase column names
+    df})
+  col_freq <- table(unlist(lapply(Stn_lst, names)))
+  sort(col_freq)
+  basecols <- names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
+  basecols <- c(basecols, "aphiaid","taxcode", "month")
+  basecols <- c(basecols, c("pressure_value",paste0("pressure_value",c("1","2"))), "month")
+  Stn_dt <- rbindlist(
+    lapply(Stn_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
+    idcol = T,
+    fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
+  Stn_dt
+
+  ## DATA TO COPY-PASTE BACK IN:
+  # Input to the WKBENTH4 Excels:
+  names(B_dt)
+  # ".id"                 "SEL_THR"             "gear_cat"            "pressure_type"       "long_Ksen"           "station_name"        "year"                "pressure_value"      "depth"
+  # "replicate"           "L1"                  "L3"                  "L10"                 "L10plus"             "lintercept"          "lslope"              "refpres_Q10"
+  # "refpres_Q15"               "refpres_Q25"         "biom_Ksens"          "ref"                 "mean_biom_Ksens_ref" "rel_biom_Ksens"
+  selcols <- c(".id","station_name", "biom_Ksens", "rel_biom_Ksens", "year")
+  to_transfer <- B_dt
+  # seldat <- sort(unique(B_dt$.id))[1]
+  # to_transfer <- B_dt[.id %in% seldat]
+  to_transfer <- to_transfer[, ..selcols]
+  num_cols <- names(to_transfer)[sapply(to_transfer, is.numeric)]
+  table(to_transfer$rel_biom_Ksens==0)
+  to_transfer[, lapply(.SD, round, digits = 6), .SDcols = num_cols]
+  # to_transfer[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
+  to_transfer
+
+
+  seldat <- sort(unique(B_dt$.id))[2]
+  seldat
+  Stn_dt[tolower(.id) %in% seldat]
+  to_transfer[.id %in% seldat]
+  to_transfer <- to_transfer[order(station_name)]
+  dim(Stn_dt[tolower(.id) %in% seldat])
+  dim(to_transfer[.id %in% seldat])
   # View(to_transfer[.id %in% seldat])
-  # to_transfer[,c("station_name","month"):=tstrsplit(station_name, "_M")]
-  # to_transfer[,month:=as.numeric(month)]
-  # View(to_transfer[.id %in% seldat,][order(station_name,month)])
-  # writeClipboard(as.character(to_transfer[.id %in% seldat]$rel_biom_Ksens))
-  # writeClipboard(as.character(to_transfer[.id %in% seldat]$station_name))
-  # writeClipboard(as.character(to_transfer[.id %in% seldat]$month))
-  # 
-  # 
-  # # Estimate the mean over the replicates for NS_BfN_grab_btrawling:
-  # writeClipboard(as.character(to_transfer[.id %in% seldat,
-  #             lapply(.SD, mean),
-  #             by=.(station_name),
-  #             .SDcols=c("rel_biom_Ksens")]$rel_biom_Ksens))
-  # 
-  # 
+  to_transfer[,c("station_name","month"):=tstrsplit(station_name, "_M")]
+  to_transfer[,month:=as.numeric(month)]
+  View(to_transfer[.id %in% seldat,][order(station_name,month)])
+  writeClipboard(as.character(to_transfer[.id %in% seldat]$rel_biom_Ksens))
+  writeClipboard(as.character(to_transfer[.id %in% seldat]$station_name))
+  writeClipboard(as.character(to_transfer[.id %in% seldat]$month))
+
+
+  # Estimate the mean over the replicates for NS_BfN_grab_btrawling:
+  writeClipboard(as.character(to_transfer[.id %in% seldat,
+              lapply(.SD, mean),
+              by=.(station_name),
+              .SDcols=c("rel_biom_Ksens")]$rel_biom_Ksens))
+
+
 
 ```
