@@ -552,6 +552,17 @@ B_dt[,rel_biom_Ksens := biom_Ksens / mean_biom_Ksens_ref]
 
 B_dt[, SEL_THR := RBSsen.threshold.50.Median]
 
+# # Two datasets have replicates. Replicates are averaged and not considered in the analysis
+table(B_dt$.id, B_dt$replicate)
+dim(B_dt)
+numcols   <- names(B_dt)[sapply(B_dt, is.numeric)]
+groupcols <- names(B_dt)[!sapply(B_dt, is.numeric) & names(B_dt) != "replicate"] # "replicate" is not a numeric column, but should be excluded from the grouping
+B_dt <- B_dt[, lapply(.SD, mean, na.rm = TRUE),
+             by = groupcols,
+             .SDcols = numcols]
+B_dt[, SEL_THR := round(SEL_THR, 8)]
+# dim(B_dt)
+
 
 # Fit GLM per group and get predicted values + CI
 B_pred <- B_dt[pressure_type %in% c("SAR", "trawl_index", "O2_depl") & !(.id %in% sel_id_multi_pres),
@@ -714,7 +725,7 @@ if(tosave)save(B_dt, B_pred, B_pred2, file = "./output/Biomass_inoutput_model.Rd
 
 ```
 
-The sample-based long-lived biomass was estimated using the the sampled-based cumulative biomass distributions (@fig-CumbExpl) and the longevities of the top 10 % long-lived biomass estimated for low-disturbance samples (@tbl-table_Qpres). The sample-based long-lived biomass fractions were divided by the mean long-lived biomass fraction of the low-disturbed samples to enable comparisons across datasets, and used as response variable for the pressure-state relationships.
+The sample-based long-lived biomass was estimated using the sampled-based cumulative biomass distributions (@fig-CumbExpl) and the longevities of the top 10 % long-lived biomass estimated for low-disturbance samples (@tbl-table_Qpres). The sample-based long-lived biomass fractions were divided by the mean long-lived biomass fraction of the low-disturbed samples to enable comparisons across datasets, and used as response variable for the pressure-state relationships.
 
 The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of relative long-lived biomass as a linear function of pressure: 
 $$
