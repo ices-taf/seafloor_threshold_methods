@@ -1,0 +1,427 @@
+---
+title: "Pressure-State relationships for Type 2 data"
+subtitle: "ALL INDICATORS UPLOADED BEFORE 12 FEBRUARY 2026"
+author: "Jochen Depestele"
+date: today
+date-format: "D MMMM YYYY"
+format:
+  pdf:
+    number-sections: true
+    tbl-cap-location: top
+    include-in-header:
+      text: |
+        \usepackage{longtable}
+        \usepackage{pdflscape}      % allows landscape pages
+execute: 
+  warning: false
+  echo: false
+  message: false
+  include: false
+editor: visual
+---
+
+```{r SET-UP R-SESSION, echo=F,include=F}
+in_folder <- "./input"
+out_folder <- "./output"
+
+# Packages ----
+library(readxl)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(kableExtra)
+
+```
+
+```{r LOAD DATA}
+#| echo: false
+## LOAD DATA ----
+d_files <- list.files(paste0(in_folder,"/Type2_v20260212"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
+d_files <- d_files[!grepl("_old", d_files)]
+d_sheets <- lapply(d_files, function(xfile) {
+  sheets <- excel_sheets(xfile)
+  data.frame(
+    file = basename(xfile),
+    has_station_info = "Station information" %in% sheets,
+    has_biological_info = "Biological information" %in% sheets
+  )
+})
+d_sheets <- do.call(rbind, d_sheets)
+d_sheets[with(d_sheets, !has_station_info | !has_biological_info),] # Which files do NOT have all worksheets?
+
+```
+
+```{r Explore station data}
+## Stations ====
+Stn_lst <- lapply(d_files, function(file)read_excel(file, sheet=excel_sheets(file)[2]))
+names(Stn_lst) <- gsub("\\.xlsx","",basename(d_files))
+
+Stn_lst <- lapply(Stn_lst, function(df) {
+  names(df) <- tolower(names(df)) # Lowercase column names
+  names(df) <- gsub("\\.x","",names(df))
+  df})
+col_freq <- table(unlist(lapply(Stn_lst, names)))
+sort(col_freq)
+names(col_freq[col_freq >= length(Stn_lst)]) # These columns occur in every excel file
+names(col_freq[col_freq > 1])
+
+metacols <- c("station","year","month","longitude","latitude","depth","gear","replicates","pressure_type","pressure_value","habitat_type")
+basecols <- c(metacols,
+              names(col_freq)[
+                grepl("total_biom|total_abun|shannon|simpson|invsimpson|medlong|fraclong|sos|longlivedbiomass_to_ref|richness|margalef",
+                      names(col_freq))])
+indcols <- basecols[!basecols %in% metacols]
+
+Stn_dt <- rbindlist(
+  lapply(Stn_lst, function(x) x[, intersect(basecols, names(x)), drop = FALSE]), # select basecols when existing
+  idcol = T,
+  fill = TRUE) # pressure_value1 and pressure_value2 do not exist in most datafiles
+
+to_table1 <- Stn_dt[,
+                    lapply(.SD, function(x) ifelse(all(is.na(x)),0,1)),
+                    by=.(.id), .SDcols = indcols]
+to_table1
+
+```
+
+Datasets were downloaded from the ICES-WKBENTH4 Sharepoint on 12 February 2026. Indicators were provided by workshop participants and included: `r paste(indcols, collapse=", ")`(@tbl-pressure_state).
+
+Type-2 data are pressure-gradient data with minimal environmental variation. Datasets were only analyzed for samples across a fishing pressure gradient ranging from low/none to high fishing intensity. Low-pressure samples were identified using the 15 % quantiles. The threshold for low pressure is set by the data provider and may result in high values. The 15 % quantile was nevertheless considered as reference for low pressure. To enable comparability across indicators and datasets, each indicator value was standardized by dividing its value by the mean value of the indicators for the low-disturbance samples.
+
+The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of each indicator as a linear function of pressure: 
+$$
+\log(\text{indicator}) = \beta \cdot \text{pressure} + \varepsilon
+$$
+with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+
+```{r Identifying significant pressure state relationships}
+# Stn_dt$.id[!grepl("_and", Stn_dt$.id)]
+# unique(Stn_dt$.id[!grepl("_and", Stn_dt$.id)])
+
+Stn_dt[,gear_cat := ifelse(gear %in% unique(Stn_dt$gear)[grepl("trawl",tolower(unique(Stn_dt$gear)))],
+                           "trawl",
+                           ifelse(gear %in% unique(Stn_dt$gear)[grepl("veen|hamon|day|sm|core",tolower(unique(Stn_dt$gear)))],
+                                  "grab",NA))]
+ind_dt <- Stn_dt[!grepl("_and", Stn_dt$.id)] # Exclude datasets with multiple pressures
+
+# Warning in selind = rel margalef div (biom), .id = NS_LongForties_btrawling: NaNs produced when running the log(resp_temp) below.
+ind_dt[.id=="NS_LongForties_btrawling" & `rel margalef div (biom)`] # => rel margalef div (biom) is set to zero.
+ind_dt[.id=="NS_LongForties_btrawling" & `rel margalef div (biom)`<0]$`rel margalef div (biom)` <- 1e-6
+
+ind_dt[, sos := ifelse(sos=="NA"|is.na(sos), NA, sos)]
+ind_dt[, sos:=as.numeric(sos)]
+
+# to_report: Estimate the mean biom_Ksens for the reference samples
+ind_dt[,
+       `:=` (refpres_Q15  = round(quantile(pressure_value, .15),2)),
+             by = .(.id, gear_cat, pressure_type)]
+ind_dt[, ref := pressure_value <= refpres_Q15]
+
+selindcols <- indcols[!grepl("_to_ref", indcols)]
+ind_dt[, paste0("mean_", selindcols) := 
+         lapply(.SD, function(x) mean(x[ref == TRUE], na.rm = TRUE)),
+       by = .(.id, pressure_type, gear_cat),
+       .SDcols = selindcols]
+# Compute relative to reference mean for each indicator
+ind_dt[, paste0(selindcols, "_to_ref") := Map(function(ind, meancol) {get(ind) / get(meancol)},
+                                              ind = selindcols,
+                                              meancol = paste0("mean_", selindcols)
+                                              )]
+ind_dt[, (paste0("mean_", selindcols)) := NULL]
+# Convert all _to_ref columns to numeric
+indcols <- names(ind_dt)[grepl("_to_ref", names(ind_dt))]
+# ind_dt[, (indcols) := lapply(.SD, function(x) as.numeric(unlist(x))), .SDcols = indcols]
+
+PSind_dt <- data.table()
+for(selind in indcols[!grepl("total_biomass_withceph",indcols)]){
+  # selind <- "longlivedbiomass_to_ref"
+  selrows <- which(!is.na(ind_dt[[selind]]))
+  temp <- ind_dt[selrows,]  # Exclude datasets where the indicator was not estimated
+  temp[,resp_tmp := as.numeric(get(selind))]
+  temp <- temp[!is.na(resp_tmp) & is.finite(resp_tmp)]
+  # cat(class(temp$pressure_value), "\n")
+  # cat(any(is.na(temp$pressure_value)), "\n")
+  # cat(selind, "\n")
+  tempout <- temp[,
+                  {# Fit GLM on logit scale
+                    m <- glm(log(resp_tmp+1e-6) ~ 0 + pressure_value, family = gaussian)
+                    s <- summary(m)
+                    # Store intercept, slope, p-value, 15% quantile
+                    resp_int <- coef(m)["(Intercept)"]
+                    resp_slope <- coef(m)["pressure_value"]
+                    resp_se    <- summary(m)$coefficients["pressure_value", "Std. Error"]
+                    slope_lwr <- resp_slope - 1.96 * resp_se
+                    slope_upr <- resp_slope + 1.96 * resp_se
+                    pval <- s$coefficients["pressure_value","Pr(>|t|)"]
+                    refpres_Q15 <- round(quantile(pressure_value, .15),2)
+                    max_pres <- max(pressure_value, na.rm=T)
+                    
+                    # Create prediction grid
+                    x_seq <- seq(0, 100, by = 0.01)
+                    pred <- predict(m, newdata = data.frame(pressure_value = x_seq),
+                                    type = "response", se.fit = TRUE)
+                    # Compute 95% CI on logit scale
+                    log_fit <- pred$fit
+                    log_se  <- pred$se.fit
+                    log_upper <- log_fit + 1.96 * log_se
+                    log_lower <- log_fit - 1.96 * log_se
+                    
+                    # Back-transform to 0-1 scale
+                    resp_fit   <- exp(log_fit)
+                    resp_se   <- exp(log_se)
+                    resp_upper <- exp(log_upper)
+                    resp_lower <- exp(log_lower)
+                    
+                    # # What SAR at the threshold?
+                    # SAR_at_THR_pred = (log(unique(SEL_THR) + 1e-6)) / resp_slope  # THRESHOLD MUST BE SPECIFIC BY .id, gear_cat, pressure_type
+                    # SAR_at_THR_lower <- (log(unique(SEL_THR) + 1e-6)) / slope_upr
+                    # SAR_at_THR_upper <- (log(unique(SEL_THR) + 1e-6)) / slope_lwr
+                    
+                    # Return as a data.table
+                    .(pressure_value = x_seq,
+                      y_pred = resp_fit,
+                      y_lower = resp_lower,
+                      y_upper = resp_upper,
+                      resp_se=exp(log_se),
+                      resp_int = resp_int,
+                      resp_slope = resp_slope,
+                      pval = pval,
+                      refpres_Q15 = refpres_Q15,
+                      # SAR_at_THR_lower=SAR_at_THR_lower,
+                      # SAR_at_THR_pred=SAR_at_THR_pred,
+                      # SAR_at_THR_upper=SAR_at_THR_upper,
+                      max_pres = max_pres
+                      )
+                    },
+                  by = .(.id, gear_cat, pressure_type)]
+  tempout$ind <- selind
+  PSind_dt <- rbind(PSind_dt, tempout)
+  }
+PSind_dt
+
+```
+
+
+```{r to report}
+# to_report: 
+selcols <- c(".id","gear_cat","pressure_type","ind","resp_slope","pval","refpres_Q15") # , "SAR_at_THR_pred", "SAR_at_THR_lower", "SAR_at_THR_upper"
+slopes <- unique(PSind_dt[,..selcols])
+selcols <- c(".id","gear_cat","pressure_type")
+to_table2 <- unique(PSind_dt[,..selcols])
+to_table2 <- to_table2[slopes[order(pval, decreasing=F)], on=c(".id","gear_cat","pressure_type")]
+num_cols <- names(to_table2)[sapply(to_table2, is.numeric)]
+num_cols <- num_cols[!num_cols %in% c("pval")]
+to_table2[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
+to_table2[, ("pval") := lapply(.SD, round, digits = 7), .SDcols = "pval"]
+to_table2 <- to_table2[order(ind, pval)]
+to_table2[, signif := ifelse(pval<0.05,"*","NS")]
+# sort(unique(to_table2$pressure_type))
+
+# dcast(to_table2, .id + gear_cat + signif ~  ind, value.var="resp_slope")
+to_table2[, slope_rep := ifelse(signif=="NS","NS",resp_slope)]
+to_table2 <- dcast(to_table2, .id + gear_cat ~ ind, value.var="slope_rep")
+
+# Rank datasets by number of indicators that show a decreasing indicator with increasing fishing pressure
+to_table2[,`:=` (cnt=rowSums(!is.na(.SD)),
+                 neg_slope=rowSums(.SD<0, na.rm=T),
+                 perc_neg_slope_ind=round(rowSums(.SD<0, na.rm=T)/rowSums(.SD!="/", na.rm=T)*100,0)),
+          .SDcols=indcols[!grepl("total_biomass_withceph",indcols)]]
+to_table2 <- to_table2[order(-perc_neg_slope_ind)]
+to_table2
+
+# Estimate for each indicator: (1) the number of datasets for which it was estimated
+# (2) the number of decreasing trends and (3) the percentage of decreasing trends
+perc_neg_slope_ind <- to_table2[, lapply(.SD, function(x) {
+  num <- suppressWarnings(as.numeric(x))
+  neg_count  <- sum(num < 0, na.rm = TRUE)
+  numeric_count <- sum(!is.na(num))
+  ns_count <- sum(x == "NS", na.rm = TRUE)
+  denom <- numeric_count + ns_count
+  if (denom == 0) return(NA_real_)
+  .(nr_datasets = denom,
+    nr_neg_slope = neg_count,
+    perc_neg_slope = round(100 * neg_count / denom,0))
+}), .SDcols = indcols[!grepl("total_biomass_withceph",indcols)]]
+# Ensure all columns exist in perc_neg_slope_ind
+missing_cols <- setdiff(names(to_table2), names(perc_neg_slope_ind))
+if (length(missing_cols) > 0) {
+  perc_neg_slope_ind[, (missing_cols) := ""]
+}
+cols_to_fill <- indcols[!grepl("total_biomass_withceph", indcols)]
+for (col in cols_to_fill) {
+  set(to_table2,
+      i = which(is.na(to_table2[[col]])),
+      j = col,
+      value = "/")
+}
+perc_neg_slope_ind <- perc_neg_slope_ind[, lapply(.SD, unlist)]
+selcols <- names(to_table2)
+perc_neg_slope_ind <- perc_neg_slope_ind[,..selcols]
+empty_row <- as.data.table(as.list(rep("", ncol(to_table2))))
+setnames(empty_row, names(to_table2))
+to_table2 <- rbindlist(list(to_table2,
+                            empty_row,
+                            perc_neg_slope_ind))
+to_table2$.id <- c(gsub("_btrawling","",to_table2$.id[1:(length(to_table2$.id)-3)]),
+                   "N(id)", "N(neg slope)","%(neg slope)")
+
+selcols <- indcols[!grepl("total_biomass_withceph",indcols)]
+
+colorder <- c(".id", "gear_cat",
+              names(sort(unlist(to_table2[.id=="%(neg slope)", ..selcols]), decreasing = T)),
+              "cnt","neg_slope","perc_neg_slope_ind")
+to_table2 <- to_table2[,..colorder]
+# to_table2
+
+```
+
+
+Pressure-state relationships were tested for `r length(indcols[!grepl("total_biomass_withceph",indcols)])` indicators. A negative slope implied a decrease in indicator in function of increasing fishing pressure. Indicators with a decreasing state with increasing fishing pressures in at least half of the tested datasets were `r paste(gsub("_to_ref","",names(to_table2))[suppressWarnings(which(as.numeric(to_table2[.id=="%(neg slope)"]) >=50))], collapse=", ")`
+
+
+
+```{r pressure-state-table, include=TRUE}
+#| label: tbl-pressure_state
+#| tbl-cap: "Significant (P>0.05) slopes of the pressure-state relationships for all indicators and datasets. NS = No significant relationship; / = Indicator not estimated."
+#| tbl-pos: H
+
+
+# Define headers in the correct order with multi-line support
+new_headers <- c(
+  ".id" = "Dataset\nID",
+  "gear_cat" = "Sampling\nGear",
+  "total_biomass_to_ref" = "Total Biomass",
+  "sos_2026_to_ref" = "SOS2026",
+  "rel margalef div (dens)_to_ref" = "Relative Margaleff\n(Density)",
+  "longlivedbiomass_to_ref" = "Long-lived\nBiomass",
+  "invsimpson_to_ref" = "Inverse\nSimpson",
+  "medlong_to_ref" = "Median\nLongevity",
+  "shannon_to_ref" = "Shannon",
+  "richness_to_ref" = "Richness",
+  "fraclong_to_ref" = "Long-lived\nFraction",
+  "simpson_to_ref" = "Simpson",
+  "sos_to_ref" = "SOS",
+  "total_abundance_to_ref" = "Total\nAbundance",
+  "rel margalef div (biom)_to_ref" = "Relative Margaleff\n(Biomass)",
+  "cnt" = "N\n(Indicators)",
+  "neg_slope" = "N\n(Neg. Slopes)",
+  "perc_neg_slope_ind" = "% \n(Neg. Slopes)"
+)
+
+# Order headers to match the table columns
+headers_ordered <- new_headers[names(to_table2)]
+
+# Print table
+kable(to_table2,
+      format = "latex",
+      booktabs = TRUE,
+      escape = TRUE,
+      row.names = FALSE,
+      col.names = headers_ordered,
+      align = rep("c", ncol(to_table2))
+) %>%
+  kable_styling(
+    latex_options = c("scale_down", "repeat_header"),
+    full_width = FALSE,
+    position = "center"
+  ) %>%
+  column_spec(1, width = "5cm", latex_valign = "m") %>%   # first column wider
+  column_spec(2:ncol(to_table2), width = "2.2cm", latex_valign = "m")
+
+
+```
+
+
+
+```{r plot pressure-state across indicators}
+
+PSind_dt[, ind := factor(ind,
+                         levels = PSind_dt$ind %>% unique(),
+                         labels = gsub("_to_ref", "", PSind_dt$ind %>% unique()))]
+
+
+linewidths <- rep(0.5, length(levels(PSind_dt$ind)))
+names(linewidths) <- levels(PSind_dt$ind)
+linewidths[c("total_biomass","sos_2026", "longlivedbiomass", "rel margalef div (dens)")] <- 1
+
+ggplot(data=PSind_dt[pressure_value <= max_pres & 
+                       !(.id %in% c("BS_southernbaltic_oxygendepletion","WMS_IMPEC_btrawling"))]) +
+  geom_line(aes(x=pressure_value, y=y_pred,
+                color = ind, linewidth = ind)) +
+  facet_wrap(gear_cat ~ .id, scales = "free") +
+  geom_hline(yintercept = 1, linetype=2, col="grey33") +
+  scale_y_continuous(labels = function(x)sprintf("%.2f", x)) +
+  scale_color_manual(name = "Indicator",
+                     values=c("#4E79A7", "#F28E2B", "#E15759", "#76B7B2", "#59A14F",
+                              "#EDC948", "#B07AA1", "#FF9DA7", "#9C755F", "#BAB0AC",
+                              "#8CD17D", "#D6A0F0", "#FABFD2"),
+                     labels=levels(PSind_dt$ind)) +
+  scale_linewidth_manual(name = "Indicator",
+                         values = linewidths,
+                         labels=levels(PSind_dt$ind)) +
+  theme_bw() +
+  # theme(legend.position = "none") +
+  labs(title = "Log-normal Regression with 95% CI of indicator relative to the mean of the low-disturbance samples",
+       subtitle = "Low disturbance samples were estimated from the 15% quantile of the dataset-specific pressure values",
+       y = "Standardized indicator values",
+       x = "SAR (except ns_silverpit_btrawling: trawling index)")
+
+ggplot2::ggsave(paste0("./output/pressure_state_indicators/all_indicators.png"), unit="cm",width=30,height=20)
+
+```
+
+
+![Pressure-state response curves for all indicators.](./output/pressure_state_indicators/all_indicators.png){#fig-PresStat_all_indicators fig-pos="H"}
+
+
+
+```{r plot pressure-state by indicator}
+
+for(selind in levels(PSind_dt$ind)){
+  ggplot() +
+  geom_point(data=ind_dt[!is.na(get(paste0(selind,"_to_ref"))) & !(.id %in% "BS_southernbaltic_oxygendepletion")],
+             aes(x=pressure_value, y=get(paste0(selind,"_to_ref")), shape = factor(ref))) +
+  geom_line(data=PSind_dt[pressure_value <= max_pres & ind==selind & !(.id %in% "BS_southernbaltic_oxygendepletion")],
+            aes(x=pressure_value, y=y_pred),
+            color = "#1F5AA6", linewidth = 1) +
+  geom_ribbon(data=PSind_dt[pressure_value <= max_pres & ind==selind & !(.id %in% "BS_southernbaltic_oxygendepletion")],
+              aes(x=pressure_value, ymin = y_lower, ymax = y_upper), fill = "#1F5AA6", alpha = 0.2) +
+  facet_wrap(gear_cat ~ .id, scales = "free") +
+  geom_hline(yintercept = 1, linetype=2, col="grey33") +
+  scale_y_continuous(labels = function(x)sprintf("%.2f", x)) +
+  scale_shape_manual(values = c(16, 1)) +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(title = paste("Log-normal Regression with 95% CI of indicator:",gsub("_"," ",selind),"\n to mean over reference samples", sep=" "),
+       y = selind,
+       x = "SAR (except ns_silverpit_btrawling: trawling index)")
+  ggplot2::ggsave(paste0("./output/pressure_state_indicators/",gsub("[ ()]", "_", selind),".png"), unit="cm",width=30,height=20)
+}
+
+```
+
+![Pressure-state response curves for total biomass.](./output/pressure_state_indicators/total_biomass.png){#fig-PresStat_total_biomass fig-pos="H" width=80%}
+
+![Pressure-state response curves for SOS (2026).](./output/pressure_state_indicators/sos_2026.png){#fig-PresStat_sos_2026 fig-pos="H" width=80%}
+
+![Pressure-state response curves for relative Margaleff diversity (density).](./output/pressure_state_indicators/rel_margalef_div__dens_.png){#fig-PresStat_rel_margalef_div__dens fig-pos="H" width=80%}
+
+![Pressure-state response curves for .](./output/pressure_state_indicators/longlivedbiomass.png){#fig-PresStat_longlivedbiomass fig-pos="H" width=80%}
+
+![Pressure-state response curves for inverse simpson.](./output/pressure_state_indicators/invsimpson.png){#fig-PresStat_invsimpson fig-pos="H" width=80%}
+
+![Pressure-state response curves for median longevity.](./output/pressure_state_indicators/medlong.png){#fig-PresStat_medlong fig-pos="H" width=80%}
+
+![Pressure-state response curves for Shannon diversity.](./output/pressure_state_indicators/shannon.png){#fig-PresStat_shannon fig-pos="H" width=80%}
+
+![Pressure-state response curves for Fraction long-lived.](./output/pressure_state_indicators/fraclong.png){#fig-PresStat_fraclong fig-pos="H" width=80%}
+
+![Pressure-state response curves for Simpson diversity.](./output/pressure_state_indicators/simpson.png){#fig-PresStat_simpson fig-pos="H" width=80%}
+
+![Pressure-state response curves for SOS.](./output/pressure_state_indicators/sos.png){#fig-PresStat_sos fig-pos="H" width=80%}
+
+![Pressure-state response curves for total abundance.](./output/pressure_state_indicators/total_abundance.png){#fig-PresStat_total_abundance fig-pos="H" width=80%}
+
+![Pressure-state response curves for relative Margaleff diversity (biomass).](./output/pressure_state_indicators/rel_margalef_div__biom_.png){#fig-PresStat_rel_margalef_div__biom fig-pos="H" width=80%}
+
+
