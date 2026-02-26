@@ -1,1 +1,1 @@
-For analysis, please use latest version on ICES sharepoint!!
+For analysis, please use latest version on ICES SharePoint!!
