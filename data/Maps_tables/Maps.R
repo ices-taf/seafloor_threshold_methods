@@ -1,14 +1,12 @@
 
-# set directory
-setwd("C:/Users/danie/OneDrive - Danmarks Tekniske Universitet/ICES_datacall/")
-
 # Load library
 library(readxl)
 library(dplyr)
+library(ggplot2)
 
 #-------------------------------------------------------------------------------
 # Get all Excel file names for type 2
-files <- list.files(path = "Type2/", pattern = "\\.xlsx$", full.names = TRUE)
+files <- list.files(path = "data/Type2/", pattern = "\\.xlsx$", full.names = TRUE)
 
 # Read sheet 2 from each file and combine
 all_data <- lapply(files, function(file) {
@@ -48,18 +46,18 @@ type2 <- ggplot()+geom_point(data=all_data,aes(x=longitude,y=latitude,col=type),
   geom_sf(data = ctrys, fill="lightgrey",colour= NA) + 
   coord_sf(xlim = c(-15,33),ylim=c(34,67)) + theme_classic()
 
-ggsave("quick_plots/type_2.png", plot = type2, width = 8, height = 6, dpi = 300)
+ggsave("data/Maps_tables/Map_type_2.png", plot = type2, width = 8, height = 6, dpi = 300)
 
 #-------------------------------------------------------------------------------
 # Get all Excel file names for type 3
-files <- list.files(path = "Type3/", pattern = "\\.xlsx$", full.names = TRUE)
+files <- list.files(path = "data/Type3/", pattern = "\\.xlsx$", full.names = TRUE)
 
 # Read sheet 2 from each file and combine
 all_data <- lapply(files, function(file) {
   # Read sheet 2
   df <- read_excel(file, sheet = 2)
   
-  # Select longitude and latitude (adjust names if needed)
+  # Select longitude and latitude
   df <- df %>%
     select(longitude, latitude) %>%            # select relevant columns
     mutate(
@@ -84,6 +82,6 @@ type3 <- ggplot()+geom_point(data=all_data,aes(x=longitude,y=latitude,col=type_3
   geom_sf(data = ctrys, fill="lightgrey",colour= NA) + 
   coord_sf(xlim = c(-15,33),ylim=c(34,67)) + theme_classic()
 
-ggsave("quick_plots/type_3.png", plot = type3, width = 8, height = 6, dpi = 300)
+ggsave("data/Maps_tables/Map_type_3.png", plot = type3, width = 8, height = 6, dpi = 300)
 
 
