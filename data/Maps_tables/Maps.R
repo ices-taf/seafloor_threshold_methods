@@ -27,7 +27,7 @@ all_data <- lapply(files, function(file) {
 # View combined dataset
 head(all_data)
 
-all_data$type <- "B. trawling (n=14)"
+all_data$type <- "B. trawling (n=13)"
 all_data$type <- ifelse(all_data$type_2 %in% c("NS_Oostdyck_sandextr_and_btrawling.xlsx",
                                                "NS_Thornton_sandextr_and_btrawling.xlsx",
                                                "NS_Hinderbanken_sandextr_and_btrawling.xlsx"),
