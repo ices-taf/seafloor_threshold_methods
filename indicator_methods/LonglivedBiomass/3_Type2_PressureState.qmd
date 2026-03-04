@@ -21,8 +21,9 @@ editor: visual
 ---
 
 ```{r SET-UP R-SESSION, echo=F,include=F}
-in_folder <- "./input"
-out_folder <- "./output"
+data_folder <- "./data"
+if(all(dir.exists(paste0(data_folder,c("Type 1","Type2","Type3"))))){
+  cat("\n=> Locate data folders (Type 1, Type2, Type3) \nfrom the data call in data_folder !\n ")}
 
 # Packages ----
 library(readxl)
@@ -36,7 +37,7 @@ library(kableExtra)
 ```{r LOAD DATA}
 #| echo: false
 ## LOAD DATA ----
-d_files <- list.files(paste0(in_folder,"/Type2_v20260212"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
+d_files <- list.files(paste0(data_folder,"/Type2"),  pattern = "\\.xlsx$|\\.xls$", full.names = T)
 d_files <- d_files[!grepl("_old", d_files)]
 d_sheets <- lapply(d_files, function(xfile) {
   sheets <- excel_sheets(xfile)
@@ -88,11 +89,9 @@ Datasets were downloaded from the ICES-WKBENTH4 Sharepoint on 12 February 2026. 
 
 Type-2 data are pressure-gradient data with minimal environmental variation. Datasets were only analyzed for samples across a fishing pressure gradient ranging from low/none to high fishing intensity. Low-pressure samples were identified using the 15 % quantiles. The threshold for low pressure is set by the data provider and may result in high values. The 15 % quantile was nevertheless considered as reference for low pressure. To enable comparability across indicators and datasets, each indicator value was standardized by dividing its value by the mean value of the indicators for the low-disturbance samples.
 
-The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of each indicator as a linear function of pressure: 
-$$
+The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of each indicator as a linear function of pressure: $$
 \log(\text{indicator}) = \beta \cdot \text{pressure} + \varepsilon
-$$
-with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+$$ with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
 
 ```{r Identifying significant pressure state relationships}
 # Stn_dt$.id[!grepl("_and", Stn_dt$.id)]
@@ -201,7 +200,6 @@ PSind_dt
 
 ```
 
-
 ```{r to report}
 # to_report: 
 selcols <- c(".id","gear_cat","pressure_type","ind","resp_slope","pval","refpres_Q15") # , "SAR_at_THR_pred", "SAR_at_THR_lower", "SAR_at_THR_upper"
@@ -275,10 +273,7 @@ to_table2 <- to_table2[,..colorder]
 
 ```
 
-
 Pressure-state relationships were tested for `r length(indcols[!grepl("total_biomass_withceph",indcols)])` indicators. A negative slope implied a decrease in indicator in function of increasing fishing pressure. Indicators with a decreasing state with increasing fishing pressures in at least half of the tested datasets were `r paste(gsub("_to_ref","",names(to_table2))[suppressWarnings(which(as.numeric(to_table2[.id=="%(neg slope)"]) >=50))], collapse=", ")`
-
-
 
 ```{r pressure-state-table, include=TRUE}
 #| label: tbl-pressure_state
@@ -331,8 +326,6 @@ kable(to_table2,
 
 ```
 
-
-
 ```{r plot pressure-state across indicators}
 
 PSind_dt[, ind := factor(ind,
@@ -370,10 +363,7 @@ ggplot2::ggsave(paste0("./output/pressure_state_indicators/all_indicators.png"),
 
 ```
 
-
 ![Pressure-state response curves for all indicators.](./output/pressure_state_indicators/all_indicators.png){#fig-PresStat_all_indicators fig-pos="H"}
-
-
 
 ```{r plot pressure-state by indicator}
 
@@ -400,28 +390,26 @@ for(selind in levels(PSind_dt$ind)){
 
 ```
 
-![Pressure-state response curves for total biomass.](./output/pressure_state_indicators/total_biomass.png){#fig-PresStat_total_biomass fig-pos="H" width=80%}
+![Pressure-state response curves for total biomass.](./output/pressure_state_indicators/total_biomass.png){#fig-PresStat_total_biomass fig-pos="H" width="80%"}
 
-![Pressure-state response curves for SOS (2026).](./output/pressure_state_indicators/sos_2026.png){#fig-PresStat_sos_2026 fig-pos="H" width=80%}
+![Pressure-state response curves for SOS (2026).](./output/pressure_state_indicators/sos_2026.png){#fig-PresStat_sos_2026 fig-pos="H" width="80%"}
 
-![Pressure-state response curves for relative Margaleff diversity (density).](./output/pressure_state_indicators/rel_margalef_div__dens_.png){#fig-PresStat_rel_margalef_div__dens fig-pos="H" width=80%}
+![Pressure-state response curves for relative Margaleff diversity (density).](./output/pressure_state_indicators/rel_margalef_div__dens_.png){#fig-PresStat_rel_margalef_div__dens fig-pos="H" width="80%"}
 
-![Pressure-state response curves for .](./output/pressure_state_indicators/longlivedbiomass.png){#fig-PresStat_longlivedbiomass fig-pos="H" width=80%}
+![Pressure-state response curves for .](./output/pressure_state_indicators/longlivedbiomass.png){#fig-PresStat_longlivedbiomass fig-pos="H" width="80%"}
 
-![Pressure-state response curves for inverse simpson.](./output/pressure_state_indicators/invsimpson.png){#fig-PresStat_invsimpson fig-pos="H" width=80%}
+![Pressure-state response curves for inverse simpson.](./output/pressure_state_indicators/invsimpson.png){#fig-PresStat_invsimpson fig-pos="H" width="80%"}
 
-![Pressure-state response curves for median longevity.](./output/pressure_state_indicators/medlong.png){#fig-PresStat_medlong fig-pos="H" width=80%}
+![Pressure-state response curves for median longevity.](./output/pressure_state_indicators/medlong.png){#fig-PresStat_medlong fig-pos="H" width="80%"}
 
-![Pressure-state response curves for Shannon diversity.](./output/pressure_state_indicators/shannon.png){#fig-PresStat_shannon fig-pos="H" width=80%}
+![Pressure-state response curves for Shannon diversity.](./output/pressure_state_indicators/shannon.png){#fig-PresStat_shannon fig-pos="H" width="80%"}
 
-![Pressure-state response curves for Fraction long-lived.](./output/pressure_state_indicators/fraclong.png){#fig-PresStat_fraclong fig-pos="H" width=80%}
+![Pressure-state response curves for Fraction long-lived.](./output/pressure_state_indicators/fraclong.png){#fig-PresStat_fraclong fig-pos="H" width="80%"}
 
-![Pressure-state response curves for Simpson diversity.](./output/pressure_state_indicators/simpson.png){#fig-PresStat_simpson fig-pos="H" width=80%}
+![Pressure-state response curves for Simpson diversity.](./output/pressure_state_indicators/simpson.png){#fig-PresStat_simpson fig-pos="H" width="80%"}
 
-![Pressure-state response curves for SOS.](./output/pressure_state_indicators/sos.png){#fig-PresStat_sos fig-pos="H" width=80%}
+![Pressure-state response curves for SOS.](./output/pressure_state_indicators/sos.png){#fig-PresStat_sos fig-pos="H" width="80%"}
 
-![Pressure-state response curves for total abundance.](./output/pressure_state_indicators/total_abundance.png){#fig-PresStat_total_abundance fig-pos="H" width=80%}
+![Pressure-state response curves for total abundance.](./output/pressure_state_indicators/total_abundance.png){#fig-PresStat_total_abundance fig-pos="H" width="80%"}
 
-![Pressure-state response curves for relative Margaleff diversity (biomass).](./output/pressure_state_indicators/rel_margalef_div__biom_.png){#fig-PresStat_rel_margalef_div__biom fig-pos="H" width=80%}
-
-
+![Pressure-state response curves for relative Margaleff diversity (biomass).](./output/pressure_state_indicators/rel_margalef_div__biom_.png){#fig-PresStat_rel_margalef_div__biom fig-pos="H" width="80%"}

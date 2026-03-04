@@ -1,0 +1,30 @@
+ID_analy,SEL_THR,.id,gear_cat,habitat_type,resp_slope,pval,SAR_at_THR_lower,SAR_at_THR_pred,SAR_at_THR_upper
+CS_EVHOE%%trawl%%Offshore circalittoral mud,0.63965941,CS_EVHOE,trawl,Offshore circalittoral mud,-0.6,0,0.66,0.74,0.85
+CS_EVHOE%%trawl%%Offshore circalittoral sand,0.65532666,CS_EVHOE,trawl,Offshore circalittoral sand,-0.65,0,0.56,0.65,0.78
+CS_EVHOE%%trawl%%Offshore circalittoral coarse sediment,0.64853267,CS_EVHOE,trawl,Offshore circalittoral coarse sediment,-0.53,0,0.67,0.81,1.02
+WMS_FRMEDITS%%trawl%%Offshore circalittoral mud,0.64868123,WMS_FRMEDITS,trawl,Offshore circalittoral mud,-0.39,0,0.91,1.11,1.42
+WMS_FRMEDITS%%trawl%%Circalittoral mud,0.62684787,WMS_FRMEDITS,trawl,Circalittoral mud,-0.2,0,1.83,2.33,3.22
+WMS_FRMEDITS%%trawl%%Circalittoral sand,0.6465641,WMS_FRMEDITS,trawl,Circalittoral sand,-0.31,0,1.12,1.42,1.96
+NS_BEhabitats%%grab%%circalittoral sand,0.63522234,NS_BEhabitats,grab,circalittoral sand,-0.7,0,0.53,0.65,0.84
+BoBIC_CGFS%%trawl%%Offshore circalittoral coarse sediment,0.61296359,BoBIC_CGFS,trawl,Offshore circalittoral coarse sediment,-0.13,0,2.97,3.85,5.47
+NS_NLhabitats%%grab%%Offshore circalittoral sand (MD5),0.64931202,NS_NLhabitats,grab,Offshore circalittoral sand (MD5),-0.57,0,0.59,0.76,1.06
+WMS_FRMEDITS%%trawl%%Upper bathyal sediment,0.61176922,WMS_FRMEDITS,trawl,Upper bathyal sediment,-4.04,0,0.09,0.12,0.17
+NS_NLhabitats%%grab%%Offshore circalittoral mud (MD6),0.64038466,NS_NLhabitats,grab,Offshore circalittoral mud (MD6),-0.54,0,0.62,0.83,1.22
+BoBIC_CGFS%%trawl%%Circalittoral coarse sediment,0.62044746,BoBIC_CGFS,trawl,Circalittoral coarse sediment,-0.11,4.8e-06,2.97,4.19,7.1
+WMS_FRMEDITS%%trawl%%Lower bathyal sediment,0.61319475,WMS_FRMEDITS,trawl,Lower bathyal sediment,-10.86,0.0001606,0.03,0.05,0.09
+CS_EVHOE%%trawl%%Upper bathyal sediment or Upper bathyal rock and biogenic reef,0.65563019,CS_EVHOE,trawl,Upper bathyal sediment or Upper bathyal rock and biogenic reef,0.53,0.0001614,,,
+CS_EVHOE%%trawl%%Circalittoral mud,0.60829754,CS_EVHOE,trawl,Circalittoral mud,-0.94,0.0006514,0.36,0.53,1.03
+CS_EVHOE%%trawl%%Upper bathyal sediment,0.637389,CS_EVHOE,trawl,Upper bathyal sediment,-0.18,0.0015811,1.58,2.54,6.47
+NS_NLhabitats%%grab%%Circalittoral sand (MC5),0.63991285,NS_NLhabitats,grab,Circalittoral sand (MC5),-0.04,0.0050516,7.13,12.05,38.74
+NS_NLhabitats%%grab%%Circalittoral coarse sediment (MC3),0.64283498,NS_NLhabitats,grab,Circalittoral coarse sediment (MC3),-1.29,0.0068911,0.21,0.34,1.01
+NS_NLhabitats%%grab%%Infralittoral sand (MB5),0.63372729,NS_NLhabitats,grab,Infralittoral sand (MB5),-0.45,0.0258487,0.56,1.01,5.63
+NS_DKhabitats%%grab%%Circalittoral sand,0.6619448,NS_DKhabitats,grab,Circalittoral sand,-0.35,0.0298196,0.62,1.17,9.29
+BoBIC_CGFS%%trawl%%Circalittoral sand,0.62044582,BoBIC_CGFS,trawl,Circalittoral sand,-0.14,0.0508031,,,
+CS_EVHOE%%trawl%%Circalittoral coarse sediment,0.63204643,CS_EVHOE,trawl,Circalittoral coarse sediment,-0.14,0.1283041,,,
+BoBIC_CGFS%%trawl%%Infralittoral sand,0.61180771,BoBIC_CGFS,trawl,Infralittoral sand,-0.32,0.1669756,,,
+CS_EVHOE%%trawl%%Circalittoral sand,0.62094243,CS_EVHOE,trawl,Circalittoral sand,-0.11,0.2242649,,,
+BoBIC_CGFS%%trawl%%Circalittoral rock and biogenic reef,0.61919545,BoBIC_CGFS,trawl,Circalittoral rock and biogenic reef,-8.06,0.2635048,,,
+WMS_FRMEDITS%%trawl%%Offshore circalittoral sand,0.64408914,WMS_FRMEDITS,trawl,Offshore circalittoral sand,-0.62,0.358596,,,
+NS_DKhabitats%%grab%%Offshore circalittoral mud,0.66710887,NS_DKhabitats,grab,Offshore circalittoral mud,-0.26,0.4006091,,,
+WMS_FRMEDITS%%trawl%%Circalittoral coarse sediment,0.63334794,WMS_FRMEDITS,trawl,Circalittoral coarse sediment,-0.71,0.6677511,,,
+NS_DKhabitats%%grab%%Offshore circalittoral sand,0.66864741,NS_DKhabitats,grab,Offshore circalittoral sand,-0.01,0.9427246,,,

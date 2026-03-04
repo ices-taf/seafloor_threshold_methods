@@ -20,22 +20,18 @@ editor: visual
 ---
 
 ```{r SET-UP R-SESSION, echo=F,include=F}
-tosave=T
+tosave=F
 
 # These folders are user-specific
-data_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/benthos_WKD6SCOPE/2026_WKBENTH4/"
-traits_folder <- "C:/Users/jdepestele/OneDrive - ILVO/000_data/biota/traits_benth/"
+data_folder <- "./data"
 if(all(dir.exists(paste0(data_folder,c("Type 1","Type2","Type3"))))){
   cat("\n=> Locate data folders (Type 1, Type2, Type3) \nfrom the data call in data_folder !\n ")}
-if(!all(dir.exists(c(traits_folder)))){
-  cat("\n=> Locate all folders with traits information !\n ")}
 
 bathy_r <- terra::rast("C:/Users/jdepestele/OneDrive - ILVO/000_data/EMODnet-Bathymetry/EMODnet_bathymetry_proj4326_extended.tif")
 
-load("./drafts/RNV_thr_scripts_JGHiddink/threshold_depth_longevity_model.RData")
+load("C:/Users/jdepestele/OneDrive - ILVO/gitr/fbit_seafloor_quality_threshold_rbs/drafts/RNV_thr_scripts_JGHiddink/threshold_depth_longevity_model.RData")
 
-in_folder <- "./input"
-out_folder <- "./output"
+out_folder <- "C:/Users/jdepestele/OneDrive - ILVO/gitr/fbit_seafloor_quality_threshold_rbs/output"
 
 # Packages ----
 library(readxl)
@@ -72,9 +68,9 @@ f_coeflmod <- function(L1, L1_3, L3_10, L10){
 }
 
 # # Predict the longevity for a relative cumulative biomass probability
-# f_predlong <- function(lintercept,lslope,prob=0.5){ 
-#   as.numeric(exp(logit(prob)-lintercept/lslope)) # prob=0.5 results in medlong
-# }
+f_predlong <- function(lintercept,lslope,prob=0.5){
+  as.numeric(exp(logit(prob)-lintercept/lslope)) # prob=0.5 results in medlong
+}
 
 f_biom_above_long <- function(longevity=3, lintercept, lslope){ 
   1-plogis(lintercept + lslope * log(longevity))
@@ -107,7 +103,6 @@ Lclasses <- c("L1", "L3", "L10", "L10plus")
 
 ```
 
-
 ```{r Biomass-at-longevity by station, echo=F,include=F, tidy=TRUE}
 ## PRE-PROCESS longevity biomass data ####
 ## Biomass-at-longevity-class per station ----
@@ -139,6 +134,10 @@ B_dt[,c("lintercept", "lslope") :=
 
 B_dt[.id %in% "BoBIC_GulfofCadizsand_btrawling" & 
        station_name == "arsa2015_4_"]$station_name <- "arsa2015_4"
+
+B_dt[, medlong := f_predlong(lintercept, lslope)]
+
+saveRDS(B_dt, "./indicator_methods/LonglivedBiomass/medlong_by_station.RDS")
 
 ```
 
@@ -296,7 +295,7 @@ ggplot2::ggsave("./output/BiomassDistribution.png", unit="cm",width=30,height=20
 
 The cumulative biomass distribution at longevity was explored for 3 trawl and 12 grab studies (@fig-CumbExpl). The fishing intensity (SAR or trawl index) differed between and within studies. Stations with low fishing intensities are expected to have a higher biomass at higher longevities (blue curves shifting to the right of the graph), while highly fished stations are except to be shifted towards lower longevities (red curves shifting to the left). Visual inspection suggested that some patterns are performing as expected, such as the *bs_gotland_btrawling*, while others are not, e.g. *bobic_gulfofcadizsand_btrawling*.
 
-![Cumulative biomass distribution at longevity for each input dataset and sampling gears. Colors are indicative of the level of trawling disturbance, SAR except for the NS Silverpit study which used a trawling index.](./output/BiomassDistribution.png){#fig-CumbExpl fig-pos="H" height=40%}
+![Cumulative biomass distribution at longevity for each input dataset and sampling gears. Colors are indicative of the level of trawling disturbance, SAR except for the NS Silverpit study which used a trawling index.](./output/BiomassDistribution.png){#fig-CumbExpl fig-pos="H" height="40%"}
 
 # Pressure-state response curves
 
@@ -537,7 +536,6 @@ B_dt[,rel_biom_Ksens := biom_Ksens / mean_biom_Ksens_ref]
 
 ```
 
-
 ```{r pressure-state model and SAR-thresholds, echo=F, include=F}
 
 ## Simulations
@@ -727,18 +725,15 @@ if(tosave)save(B_dt, B_pred, B_pred2, file = "./output/Biomass_inoutput_model.Rd
 
 The sample-based long-lived biomass was estimated using the sampled-based cumulative biomass distributions (@fig-CumbExpl) and the longevities of the top 10 % long-lived biomass estimated for low-disturbance samples (@tbl-table_Qpres). The sample-based long-lived biomass fractions were divided by the mean long-lived biomass fraction of the low-disturbed samples to enable comparisons across datasets, and used as response variable for the pressure-state relationships.
 
-The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of relative long-lived biomass as a linear function of pressure: 
-$$
+The pressure-state relationships were estimated by fitting a log-normal model with the logarithm of relative long-lived biomass as a linear function of pressure: $$
 \log(\text{RelativeLonglivedBiomass}) = \beta \cdot \text{pressure} + \varepsilon
-$$
-with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+$$ with $\varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
 
-The slope of the pressure-state response curves was negative in `r nrow(to_table2[resp_slope<0])` out of `r nrow(to_table2)` datasets, and significant at $P \leq 0.05$ for `r nrow(to_table2[pval<0.05])` datasets (@tbl-PresStat_SAR, @fig-PresStat_SAR). 
+The slope of the pressure-state response curves was negative in `r nrow(to_table2[resp_slope<0])` out of `r nrow(to_table2)` datasets, and significant at $P \leq 0.05$ for `r nrow(to_table2[pval<0.05])` datasets (@tbl-PresStat_SAR, @fig-PresStat_SAR).
 
 The thresholds of the long-lived biomass fractions ($Lf_{thr}$) were estimated for each dataset from the threshold-models developed for infauna and epifauna using Type-1 data (@tbl-thr_mod), the sample-specific depths and the longevity estimates of the reference samples (@tbl-table_Qpres). The median threshold of the long-lived biomass fraction (related to RBS sensitivity) was calculated as $Lf_{thr}=\text{Threshold}_{0.50} = Q_{0.50}(\text{Beta}(\alpha, \beta))$, where $Q_{0.50}$ denotes the 50th percentile of the beta distribution, or 50 % of being in good state.
 
-The thresholds of long-lived biomass fraction ($Lf_{thr}$) and the pressure-state relationships of each dataset (@fig-PresStat_SAR) were used to estimate the associated SAR-thresholds with 95 % Confidence Intervals using the 95 % CI from the pressure-state relationships. SAR-thresholds wtih 95 % CI were only estimated when inverted fitted relationships were significant ($P \leq 0.05$) using $\text{Pressure}_{\text{thr}} = \log(\text{Biomass}_{thr}) / \beta$ with $\beta$ being the slope parameters (@tbl-PresStat_SAR). 
-
+The thresholds of long-lived biomass fraction ($Lf_{thr}$) and the pressure-state relationships of each dataset (@fig-PresStat_SAR) were used to estimate the associated SAR-thresholds with 95 % Confidence Intervals using the 95 % CI from the pressure-state relationships. SAR-thresholds wtih 95 % CI were only estimated when inverted fitted relationships were significant ($P \leq 0.05$) using $\text{Pressure}_{\text{thr}} = \log(\text{Biomass}_{thr}) / \beta$ with $\beta$ being the slope parameters (@tbl-PresStat_SAR).
 
 ```{r tabulate Type-1 threshold model, echo=F, include=T}
 #| label: tbl-thr_mod
@@ -768,7 +763,6 @@ kable(to_table2[, -c(4)],
   kable_styling(latex_options = c("hold_position", "striped", "scale_down"))
 
 ```
-
 
 ![Relative response curve by submitted Type-2 dataset over a trawling gradient.](./output/pressure_state_fishing.png){#fig-PresStat_SAR fig-pos="H"}
 
