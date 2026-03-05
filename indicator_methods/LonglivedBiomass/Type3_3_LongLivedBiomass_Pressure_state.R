@@ -4,6 +4,10 @@
 #   author: "Jochen Depestele"
 #---
 
+library(data.table)
+library(dplyr)
+library(ggplot2)
+
 f_biom_above_long <- function(longevity=3, lintercept, lslope){ 
   1-plogis(lintercept + lslope * log(longevity))
 }
@@ -54,17 +58,17 @@ PS_dt[pressure_value <= refpres_Q15,
       .N,
       by = .(.id, gear_cat, habitat_type, ID_analy)][N>=5]
 
-SEL.THR = 0.75
+SEL.THR = 0.25
 if(SEL.THR=="avg_Q15"){
   selcases <- PS_dt[pressure_value <= refpres_Q15, 
                     .(nr_refs = .N, 
                       avgPres = mean(pressure_value, na.rm = TRUE)),
-                    by = .(.id, gear_cat, habitat_type, ID_analy)][avgPres<0.75 & nr_refs>=5] # HERE YOU SELECT CASES WHICH HAVE ON AVERAGE A PRESSURE < 0.75
+                    by = .(.id, gear_cat, habitat_type, ID_analy)][avgPres<SEL.THR & nr_refs>=5] # HERE YOU SELECT CASES WHICH HAVE ON AVERAGE A PRESSURE < 0.75 (SEL.THR)
   PS_dt[, ref := pressure_value <= refpres_Q15]
   table(PS_dt$habitat_type, PS_dt$ref, PS_dt$.id)
 }else{
   SEL.THR = 0.75
-  selcases <- PS_dt[pressure_value <= SEL.THR, # HERE YOU SELECT CASES WHICH HAVE EACH HAVE A PRESSURE < 0.75
+  selcases <- PS_dt[pressure_value <= SEL.THR, # HERE YOU SELECT CASES WHICH HAVE EACH HAVE A PRESSURE < 0.75 (SEL.THR)
                     .(nr_refs = .N, 
                       avgPres = mean(pressure_value, na.rm = TRUE)),
                     by = .(.id, gear_cat, habitat_type, ID_analy)][nr_refs>=5]
@@ -138,8 +142,6 @@ RBSsen.threshold.90 <- qbeta(0.90, alpha_betreg, beta_betreg)
 B_ref[, `:=`(alpha_betreg = alpha_betreg, beta_betreg = beta_betreg, 
              RBSsen.threshold.50 = RBSsen.threshold.50, RBSsen.threshold.90 = RBSsen.threshold.90)]
 
-B_ref
-
 # extract summary statistics across ref samples
 B_ref <- B_ref[,as.list(unlist(lapply(.SD, summary))),
                by = c(".id", "gear_cat", "habitat_type", "ID_analy", 
@@ -156,10 +158,42 @@ PScase_dt <- B_ref[,..selcols][PS_dt[ID_analy %in% selcases$ID_analy], on=c(".id
 
 PScase_dt[,biom_Ksens := f_biom_above_long(long_Ksen, lintercept, lslope)]
 
-PScase_dt[, mean_biom_Ksens_ref :=
-            mean(biom_Ksens[ref == TRUE], na.rm = TRUE),
+PScase_dt[, `:=` (mean_biom_Ksens_ref = mean(biom_Ksens[ref == TRUE], na.rm = TRUE)),
           by = .(.id, gear_cat, habitat_type, ID_analy)]
 PScase_dt[,rel_biom_Ksens := biom_Ksens / mean_biom_Ksens_ref]
+
+PScase_dt[, `:=`(
+  Q90long_DCref = exp(
+    mean(log(rel_biom_Ksens[ref == TRUE]+1e-6), na.rm = TRUE) -
+      qt(0.975,
+         df = length(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]) - 1) *
+      sd(log(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]+1e-6)) /
+      sqrt(length(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]))
+  ),
+  Q90long_NVref = quantile(rel_biom_Ksens[ref == TRUE], 0.15, na.rm = TRUE)),
+  by = .(.id, gear_cat, habitat_type, ID_analy)]
+
+# library(fitdistrplus)
+# PScase_dt[, {
+#   x <- rel_biom_Ksens[ref == TRUE] # NOT TO BE USED => rel_biom_Ksens is not between 0 and 1 (no beta regression)
+#   x <- x[!is.na(x) & is.finite(x)]
+#   fit <- fitdist(x, "beta")
+#   alpha <- fit$estimate["shape1"]
+#   beta  <- fit$estimate["shape2"]
+#   list(
+#     Q90long_DCref = qbeta(0.025, alpha, beta),
+#     Q90long_NVref = qbeta(0.15, alpha, beta)
+#   )
+# }, by = .(.id, gear_cat, habitat_type, ID_analy)]
+
+showthr <- PScase_dt[ref==T,
+                     .(nr_refs = .N),
+                     by = .(ref, .id, gear_cat, habitat_type, ID_analy)][nr_refs>=10]
+
+PScase_dt[ID_analy %in% showthr$ID_analy,
+          lapply(.SD, function(x)round(unique(x), 5)),
+          by=.(ID_analy),
+          .SDcols=c("Q90long_DCref","Q90long_NVref")]
 
 PScase_dt[, SEL_THR := RBSsen.threshold.50.Median]
 PScase_dt[, SEL_THR := round(SEL_THR, 8)]
@@ -353,135 +387,3 @@ ggplot2::ggsave("./indicator_methods/LonglivedBiomass/Type3_PressureState_thresh
 fwrite(plot_table2, "./indicator_methods/LonglivedBiomass/Type3_PressureState_thresholds.csv")
 
 #
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ---------------------------------------------------
-# Step 1: Compute per-facet maximum y
-# ---------------------------------------------------
-facet_max_y <- PScase_dt %>%
-  group_by(ID_analy) %>%
-  summarise(max_y = max(rel_biom_Ksens, na.rm = TRUE), .groups = "drop")
-facet_max_x <- PScase_dt %>%
-  group_by(ID_analy) %>%
-  summarise(max_x = max(pressure_value, na.rm = TRUE), .groups = "drop")
-
-# ---------------------------------------------------
-# Step 2: Merge max_y into predictions and observations
-# ---------------------------------------------------
-B_pred2 <- B_pred %>%
-  left_join(facet_max_y, by = c("ID_analy"))
-toplot_table2 <- toplot_table2 %>%
-  left_join(facet_max_x, by = c("ID_analy"))
-
-PScase_dt2 <- PScase_dt %>%
-  left_join(facet_max_y, by = c("ID_analy"))
-PScase_dt2 <- PScase_dt2 %>%
-  left_join(facet_max_x, by = c("ID_analy"))
-PScase_dt2 <- PScase_dt2 %>%
-  mutate(
-    pressure_value = pmin(pressure_value, max_x), # Cap predictions and ribbons at per-facet max
-    rel_biom_Ksens = pmin(rel_biom_Ksens, max_y)
-  )
-
-# ---------------------------------------------------
-# Step 3: Cap predictions and ribbons at per-facet max
-# ---------------------------------------------------
-B_pred2 <- B_pred2 %>%
-  mutate(
-    y_pred   = pmin(y_pred, max_y),
-    y_upper  = pmin(y_upper, max_y)
-  )
-toplot_table2 <- toplot_table2 %>%
-  left_join(facet_max_x, by = c("ID_analy"))
-toplot_table2 <- toplot_table2 %>%
-  mutate(
-    SAR_at_THR_lower = pmin(SAR_at_THR_lower, max_x),
-    SAR_at_THR_upper = pmin(SAR_at_THR_upper, max_x),
-    SAR_at_THR_pred  = pmin(SAR_at_THR_pred, max_x)
-  )
-
-# ---------------------------------------------------
-# Step 4: Plot
-# ---------------------------------------------------
-unique(B_pred2$ID_analy)
-unique(B_pred2$ID_analy)[grepl("rock",unique(B_pred2$ID_analy))] # rock and biogenic reef are not included
-plot_cases <- unique(B_pred2$ID_analy)[!unique(B_pred2$ID_analy) %in% c(unique(B_pred2$ID_analy)[grepl("rock",unique(B_pred2$ID_analy))],
-                                                                        "WMS_FRMEDITS%%trawl%%Upper bathyal sediment", "WMS_FRMEDITS%%trawl%%Lower bathyal sediment")]
-ggplot(B_pred2[ID_analy %in% plot_cases & pressure_value<100], 
-       aes(x = pressure_value, y = y_pred, group = .id)) +
-  geom_ribbon(aes(ymin = y_lower, ymax = y_upper), fill = "#1F5AA6", alpha = 0.2) +
-  geom_line(color = "#1F5AA6", linewidth = 1) +
-  geom_point(data = PScase_dt2[ID_analy %in% plot_cases & pressure_value<100],
-             aes(x = pressure_value, y = rel_biom_Ksens, shape = factor(ref)),
-             color = "grey33") +
-  # geom_hline(yintercept = 1, linetype=2, col="grey33") +
-  # geom_hline(data=toplot_table2[ID_analy %in% plot_cases], aes(yintercept = SEL_THR), 
-  #            col="#B44A3A") +
-  # geom_rect(data = toplot_table2[ID_analy %in% plot_cases], 
-  #           aes(xmin = SAR_at_THR_lower, xmax = SAR_at_THR_upper, ymin = -Inf, ymax = Inf),
-  #           fill = "grey75", alpha = 0.25, inherit.aes = FALSE) +
-  # geom_vline(data = toplot_table2[ID_analy %in% plot_cases], aes(xintercept = SAR_at_THR_pred), col="grey75") +
-  facet_wrap(. ~ ID_analy, scales = "free") +
-  scale_shape_manual(values = c(16, 1)) +
-  theme_bw() +
-  theme(legend.position = "none") +
-  labs(title = "Log-normal Regression with 95% CI",
-       y = "relative longlived biomass to reference conditions",
-       x = "Pressure_value")
-
-
-
-
-#
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# to_report: 
-selcols <- c("ID_analy","resp_slope","pval","refpres_Q15")
-slopes <- unique(B_pred[,..selcols])
-selcols <- c("ID_analy","mean_biom_Ksens_ref","long_Ksen")
-to_table2 <- unique(PScase_dt[,..selcols])
-to_table2 <- to_table2[slopes[order(pval, decreasing=F)], on=c("ID_analy")]
-num_cols <- names(to_table2)[sapply(to_table2, is.numeric)]
-num_cols <- num_cols[!num_cols %in% c("pval")]
-to_table2[, (num_cols) := lapply(.SD, round, digits = 2), .SDcols = num_cols]
-to_table2[, ("pval") := lapply(.SD, round, digits = 7), .SDcols = "pval"]
-selcols <- c("ID_analy", "resp_slope","pval")
-to_table2 <- to_table2[order(pval) ,..selcols]
-to_table2
