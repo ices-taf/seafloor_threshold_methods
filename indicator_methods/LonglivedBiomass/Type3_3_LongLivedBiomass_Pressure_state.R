@@ -161,17 +161,46 @@ PScase_dt[,biom_Ksens := f_biom_above_long(long_Ksen, lintercept, lslope)]
 PScase_dt[, `:=` (mean_biom_Ksens_ref = mean(biom_Ksens[ref == TRUE], na.rm = TRUE)),
           by = .(.id, gear_cat, habitat_type, ID_analy)]
 PScase_dt[,rel_biom_Ksens := biom_Ksens / mean_biom_Ksens_ref]
+# 
+# PScase_dt[, `:=`(
+#   Q90long_DCref = exp(
+#     mean(log(rel_biom_Ksens[ref == TRUE]+1e-6), na.rm = TRUE) -
+#       qt(0.975,
+#          df = length(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]) - 1) *
+#       sd(log(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]+1e-6)) /
+#       sqrt(length(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]))
+#   ),
+#   Q90long_NVref = quantile(rel_biom_Ksens[ref == TRUE], 0.15, na.rm = TRUE)),
+#   by = .(.id, gear_cat, habitat_type, ID_analy)]
 
-PScase_dt[, `:=`(
-  Q90long_DCref = exp(
-    mean(log(rel_biom_Ksens[ref == TRUE]+1e-6), na.rm = TRUE) -
-      qt(0.975,
-         df = length(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]) - 1) *
-      sd(log(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]+1e-6)) /
-      sqrt(length(rel_biom_Ksens[ref == TRUE][!is.na(rel_biom_Ksens[ref == TRUE])]))
-  ),
-  Q90long_NVref = quantile(rel_biom_Ksens[ref == TRUE], 0.15, na.rm = TRUE)),
-  by = .(.id, gear_cat, habitat_type, ID_analy)]
+PScase_dt[, c("Q90long_DCref", "Q90long_NVref") := {
+  tmp <- rel_biom_Ksens[ref == TRUE]
+  n_records <- length(tmp)
+  mean_log <- mean(log(tmp + 1e-6), na.rm=T)
+  sd_log   <- sd(log(tmp + 1e-6), na.rm=T)
+  se_log   <- sd_log / sqrt(n_records)
+  tval     <- qt(0.975, df = max(n_records-1, 1))
+  list(
+    Q90long_DCref = exp(mean_log - tval * se_log),
+    Q90long_NVref = exp(quantile(log(tmp + 1e-6), 0.15,na.rm=T)) # exp(qnorm(0.15) * sd_log)
+    )
+}, by = .(.id, gear_cat, habitat_type, ID_analy)]
+
+# PScase_dt[, {
+#   tmp <- biom_Ksens[ref == TRUE & !is.na(biom_Ksens)]
+#   n_records <- length(tmp)
+#   meanQ90 <- mean(tmp)
+#   sdQ90   <- sd(tmp)
+#   seQ90   <- sdQ90 / sqrt(n_records)
+#   tval     <- qt(0.975, df = max(n_records-1, 1))
+#   margin_error <- tval * seQ90
+#   CIlow <- meanQ90 - margin_error
+#   list(
+#     Q90long_DCref = meanQ90 - CIlow,
+#     Q90long_NVref = meanQ90 + qnorm(0.15) * sdQ90
+#   )
+# }, by = .(.id, gear_cat, habitat_type, ID_analy)]
+
 
 # library(fitdistrplus)
 # PScase_dt[, {
