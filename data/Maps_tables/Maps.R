@@ -75,6 +75,23 @@ all_data <- lapply(files, function(file) {
 # View combined dataset
 head(all_data)
 
+all_data$type_3 <- ifelse( all_data$type_3 == "BoBIC_CGFS.xlsx","CGFS",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 ==  "BoBIC_GulfofCadizhabitats.xlsx","ARSA",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "BoBIC_IberianChabitats.xlsx","DEMERSALES",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "CS_EVHOE.xlsx","EVHOE",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "CS_NS_IBTSFR.xlsx","IBTS_FR",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "CS_NS_UKhabitats.xlsx","JNCC",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "FR_ORHAGO.xlsx","ORHAGO",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "NS_BEhabitats.xlsx","BPNS",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "NS_DKhabitats.xlsx","NOVANA",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "NS_NLhabitats.xlsx","MWTL",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "WMS_APPEALMED.xlsx","APPEALMED",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "WMS_EShabitats.xlsx","MEDITS_ESP",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "WMS_FRMEDITS.xlsx","MEDITS_FR",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "WMS_IEOESPhabitats.xlsx","MEDITS_ESP2",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "WMS_ISCMS_IRBIMCNR.xlsx","MEDITS_SI",all_data$type_3)
+all_data$type_3 <- ifelse( all_data$type_3 == "WMS_NOURMED.xlsx","NOURMED",all_data$type_3)
+
 # make a map
 ctrys <- rnaturalearth::ne_countries(scale = 50, returnclass = "sf")
 
