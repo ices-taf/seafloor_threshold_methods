@@ -1,0 +1,578 @@
+---
+title: "Thresholds metanalysis"
+author: "Aurélien Boyé - Ifremer"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  rmdformats::readthedown:
+    lightbox: TRUE
+    gallery: TRUE
+    thumbnails: FALSE # if TRUE display content images as thumbnails
+    toc_depth: 3
+    use_bookdown: TRUE
+---
+
+```{r setup, include=FALSE} 
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+```
+
+# Packages
+
+```{r, message = FALSE}
+library(tidyverse)
+library(readxl)
+library(glmm.hp)
+library(betareg)
+library(ggridges)
+library(broom)
+library(mgcv)
+library(gam.hp)
+library(upset.hp)
+library(DHARMa)
+library(ggpointdensity)
+library(viridis)
+```
+
+# Using type 3 data
+
+```{r}
+
+# Load the data
+type3_thresholds <- read_excel("06. Data/Data_type_3_threholds_pressure_state.xlsx", sheet = 1)
+
+# Classify infaunal datasets
+infauna_datasets <- c("NS_BEhabitats", "NS_NLhabitats", "NS_DKhabitats", "CS_NS_UKhabitats")
+ 
+# Regions (dataset lists provided)
+wms_datasets <- c("WMS_IEOESPhabitats", "WMS_EShabitats", "WMS_FRMEDITS","WMS_ISCMS_IRBIMCNR", "WMS_NOURMED", "WMS_APPEALMED")
+bobic_cs_datasets <- c("BoBIC_IberianChabitats", "BoBIC_GulfofCadizhabitats", "BoBIC_CGFS","FR_ORHAGO", "CS_EVHOE")
+gns_datasets <- c("CS_NS_IBTSFR","NS_BEhabitats", "NS_NLhabitats", "NS_DKhabitats", "CS_NS_UKhabitats")
+ 
+# Extract and format state thresholds
+type3_state_thresholds <- type3_thresholds %>%
+  select(-DC_P.TH, -NV_P.TH, -D2D_P.TH) %>%
+  gather(THRESHOLD_METHOD, value, -DATASET, -INDICATOR, -BHT, -N, -PVALUE) %>%
+  mutate(REGION = case_when(
+      DATASET %in% wms_datasets      ~ "Western Mediterranean Sea",
+      DATASET %in% bobic_cs_datasets ~ "Bay of Biscay & Iberian Coast + Celtic Seas",
+      DATASET %in% gns_datasets      ~ "Greater North Sea",
+      TRUE                           ~ NA_character_
+    ),
+    FAUNA = if_else(DATASET %in% infauna_datasets, "Infauna", "Epifauna")
+  ) %>%
+  mutate(value = as.numeric(value)) %>%
+  mutate_if(is.character,as.factor)
+
+# Extract and format pressure thresholds
+type3_pressure_thresholds <- type3_thresholds %>%
+  select(-DC_S.TH, -NV_S.TH, -D2D_S.TH) %>%
+  gather(THRESHOLD_METHOD, value, -DATASET, -INDICATOR, -BHT, -N, -PVALUE) %>%
+  mutate(
+    REGION = case_when(
+      DATASET %in% wms_datasets      ~ "Western Mediterranean Sea",
+      DATASET %in% bobic_cs_datasets ~ "Bay of Biscay & Iberian Coast + Celtic Seas",
+      DATASET %in% gns_datasets      ~ "Greater North Sea",
+      TRUE                           ~ NA_character_
+    ),
+    FAUNA = if_else(DATASET %in% infauna_datasets, "Infauna", "Epifauna")
+  ) %>%
+  mutate(value = as.numeric(value)) %>%
+  mutate_if(is.character,as.factor)
+```
+
+## Distribution of state thresholds
+
+```{r}
+
+ggplot(aes(x = value, y = DATASET), data = type3_state_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = INDICATOR), data = type3_state_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+
+ggplot(aes(x = value, y = BHT), data = type3_state_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = THRESHOLD_METHOD), data = type3_state_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = REGION), data = type3_state_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = FAUNA), data = type3_state_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+```
+
+## Distribution of pressure thresholds
+
+```{r}
+
+ggplot(aes(x = value, y = DATASET), data = type3_pressure_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = INDICATOR), data = type3_pressure_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+
+ggplot(aes(x = value, y = BHT), data = type3_pressure_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = THRESHOLD_METHOD), data = type3_pressure_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = REGION), data = type3_pressure_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+ggplot(aes(x = value, y = FAUNA), data = type3_pressure_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+```
+
+## Variance partitioning of pressure thresholds
+
+```{r}
+detect_glm_family(type3_pressure_thresholds$value)
+```
+
+Best model is a gamma one, but variance partitioning not available so I first compare with a poisson regression
+
+## With dataset as predictor
+
+```{r}
+thresholds_model_gamma <- glm(value ~ DATASET + FAUNA + REGION + INDICATOR + BHT + N + THRESHOLD_METHOD, family = Gamma(link = "log") , data = type3_pressure_thresholds)
+
+summary(thresholds_model_gamma)
+
+model_residuals <- simulateResiduals(fittedModel = thresholds_model_gamma)
+plot(model_residuals)
+
+coef_gamma <- tidy(thresholds_model_gamma, conf.int = TRUE) %>%
+  mutate(signif = if_else(p.value < 0.05, TRUE, FALSE))
+
+coef_gamma
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_gamma) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+```
+
+
+```{r}
+thresholds_model_poisson <- glm(value ~ DATASET + FAUNA + REGION + INDICATOR + BHT + N + THRESHOLD_METHOD, family = poisson(link = "log") , data = type3_pressure_thresholds)
+
+summary(thresholds_model_poisson)
+
+model_residuals <- simulateResiduals(fittedModel = thresholds_model_poisson)
+plot(model_residuals)
+
+# Extract the coef
+coef_poisson <- tidy(thresholds_model_poisson, conf.int = TRUE) %>%
+  mutate(signif = if_else(p.value < 0.05, TRUE, FALSE))
+
+coef_poisson
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_poisson) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+```
+
+```{r}
+plot(predict(thresholds_model_poisson, type = "response") ~ predict(thresholds_model_gamma, type = "response"))
+abline(a = 0, b = 1)
+
+plot(coef_poisson$estimate ~ coef_gamma$estimate)
+abline(a = 0, b = 1)
+```
+
+Seems ok, qualitatively results are similar, although Gamma model behave better. I still go on with variance partitioning for the poisson model given similar coefficients and predictions.
+
+```{r}
+variance_partition <- glmm.hp(thresholds_model_poisson, iv = NULL, type = "adjR2", commonality = FALSE)
+
+variance_partition
+
+plot(variance_partition)
+
+variance_partition_common <- glmm.hp(thresholds_model_poisson, iv = NULL, type = "adjR2", commonality = TRUE)
+
+vp <- variance_partition_common$delta
+hp <- variance_partition$delta
+upset.hp(vp, hp, col = "cvd", digits = 1, nVar = 19)
+```
+
+### If I remove dataset as predictor
+
+```{r}
+thresholds_model_poisson <- glm(value ~ FAUNA + REGION + INDICATOR + BHT + N + THRESHOLD_METHOD, family = poisson(link = "log") , data = type3_pressure_thresholds)
+
+summary(thresholds_model_poisson)
+
+model_residuals <- simulateResiduals(fittedModel = thresholds_model_poisson)
+plot(model_residuals)
+
+# Extract the coef
+coef_poisson <- tidy(thresholds_model_poisson, conf.int = TRUE) %>%
+  mutate(signif = if_else(p.value < 0.05, TRUE, FALSE))
+
+coef_poisson
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_poisson) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+variance_partition <- glmm.hp(thresholds_model_poisson, iv = NULL, type = "adjR2", commonality = FALSE)
+
+variance_partition
+
+plot(variance_partition)
+
+variance_partition_common <- glmm.hp(thresholds_model_poisson, iv = NULL, type = "adjR2", commonality = TRUE)
+
+vp <- variance_partition_common$delta
+hp <- variance_partition$delta
+upset.hp(vp, hp, col = "cvd", digits = 1)
+```
+
+## Variance partitioning of state thresholds
+
+```{r}
+detect_glm_family(type3_state_thresholds$value)
+```
+
+Best model is a beta regression
+
+> Note here that I cannot put both DATASET and REGION+INFAUNA in the beta model (except with the gam), due to convergence issue. Hence I test them alternatively in the model then use them both in the gam in the end. 
+
+### With dataset as predictor
+
+```{r}
+
+thresholds_model_beta <- betareg(value ~ DATASET + INDICATOR + BHT + N + THRESHOLD_METHOD, data = type3_state_thresholds)
+summary(thresholds_model_beta)
+
+par(mfrow=(c(2,2)))
+plot(thresholds_model_beta)
+par()
+
+coef_beta <- tidy(thresholds_model_beta, conf.int = TRUE) %>%
+  mutate(signif = if_else(p.value < 0.05, TRUE, FALSE))
+
+coef_beta
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_beta %>% filter(component == "mean")) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+```
+
+```{r}
+thresholds_model_beta_gam_lm <- gam(
+  value ~ DATASET + INDICATOR + BHT + N + THRESHOLD_METHOD,
+  family = betar(link = "logit"),
+  data = type3_state_thresholds,
+  method = "REML"
+)
+
+thresholds_model_beta_gam_lm
+
+coef_beta <- summary(thresholds_model_beta_gam_lm)$p.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  rename(
+    estimate = Estimate,
+    std.error = `Std. Error`,
+    statistic = `z value`,
+    p.value = `Pr(>|z|)`
+  ) %>%
+  mutate(
+    conf.low  = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error,
+    signif = p.value < 0.05
+  )
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_beta) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+variance_partition_beta <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = FALSE
+)
+
+variance_partition_beta
+plot(variance_partition_beta)
+
+variance_partition_beta_common <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = TRUE
+)
+
+vp <- variance_partition_beta_common$commonality.analysis
+hp <- variance_partition_beta$hierarchical.partitioning
+upset.hp(vp, hp, col = "cvd", digits = 1, nVar = 9)
+```
+
+### With region and fauna (removing dataset)
+
+```{r}
+
+thresholds_model_beta <- betareg(value ~ REGION + FAUNA + INDICATOR + BHT + N + THRESHOLD_METHOD, data = type3_state_thresholds)
+summary(thresholds_model_beta)
+
+plot(thresholds_model_beta)
+
+coef_beta <- tidy(thresholds_model_beta, conf.int = TRUE) %>%
+  mutate(signif = if_else(p.value < 0.05, TRUE, FALSE))
+
+coef_beta
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_beta %>% filter(component == "mean")) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+```
+
+```{r}
+thresholds_model_beta_gam_lm <- gam(
+  value ~  REGION + FAUNA + INDICATOR + BHT + N + THRESHOLD_METHOD,
+  family = betar(link = "logit"),
+  data = type3_state_thresholds,
+  method = "REML"
+)
+
+thresholds_model_beta_gam_lm
+
+coef_beta <- summary(thresholds_model_beta_gam_lm)$p.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  rename(
+    estimate = Estimate,
+    std.error = `Std. Error`,
+    statistic = `z value`,
+    p.value = `Pr(>|z|)`
+  ) %>%
+  mutate(
+    conf.low  = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error,
+    signif = p.value < 0.05
+  )
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_beta) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+variance_partition_beta <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = FALSE
+)
+
+variance_partition_beta
+plot(variance_partition_beta)
+
+variance_partition_beta_common <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = TRUE
+)
+
+vp <- variance_partition_beta_common$commonality.analysis
+hp <- variance_partition_beta$hierarchical.partitioning
+upset.hp(vp, hp, col = "cvd", digits = 1)
+```
+
+### With both
+
+```{r}
+thresholds_model_beta_gam_lm <- gam(
+  value ~  DATASET + REGION + FAUNA + INDICATOR + BHT + N + THRESHOLD_METHOD,
+  family = betar(link = "logit"),
+  data = type3_state_thresholds,
+  method = "REML"
+)
+
+thresholds_model_beta_gam_lm
+
+coef_beta <- summary(thresholds_model_beta_gam_lm)$p.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  rename(
+    estimate = Estimate,
+    std.error = `Std. Error`,
+    statistic = `z value`,
+    p.value = `Pr(>|z|)`
+  ) %>%
+  mutate(
+    conf.low  = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error,
+    signif = p.value < 0.05
+  )
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_beta) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+variance_partition_beta <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = FALSE
+)
+
+variance_partition_beta
+plot(variance_partition_beta)
+
+variance_partition_beta_common <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = TRUE
+)
+
+vp <- variance_partition_beta_common$commonality.analysis
+hp <- variance_partition_beta$hierarchical.partitioning
+upset.hp(vp, hp, col = "cvd", digits = 1, nVar = 16)
+```
+
+---
+
+# Using type 1 data
+
+```{r}
+# Load the data
+type1_thresholds <- read.csv("06. Data/aurelien_data.csv")
+
+for (i in c("station","gear","indicator","data_type","substrate","method")){
+  p <- ggplot(aes(x = threshold, y = .data[[i]]), data = type1_thresholds) +
+  geom_density_ridges(
+    jittered_points = TRUE,
+    position = position_points_jitter(width = 0.05, height = 0),
+    point_shape = '|', point_size = 3, point_alpha = 1, alpha = 0.7,
+  )
+
+  plot(p)
+}
+
+ggplot(aes(x = depth, y = threshold), data = type1_thresholds) +
+  geom_pointdensity() +
+  scale_color_viridis()
+
+```
+
+```{r}
+detect_glm_family(type1_thresholds$threshold)
+
+thresholds_model_beta_gam_lm <- gam(
+  threshold ~  station + gear + indicator + data_type + MSFD_BBHT + depth + method,
+  family = betar(link = "logit"),
+  data = type1_thresholds,
+  method = "REML"
+)
+
+thresholds_model_beta_gam_lm
+
+coef_beta <- summary(thresholds_model_beta_gam_lm)$p.table %>%
+  as.data.frame() %>%
+  rownames_to_column("term") %>%
+  rename(
+    estimate = Estimate,
+    std.error = `Std. Error`,
+    statistic = `z value`,
+    p.value = `Pr(>|z|)`
+  ) %>%
+  mutate(
+    conf.low  = estimate - 1.96 * std.error,
+    conf.high = estimate + 1.96 * std.error,
+    signif = p.value < 0.05
+  )
+
+ggplot(mapping = aes(x = estimate, y = term, fill = p.value, shape = signif), data = coef_beta) +
+  geom_errorbarh(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_point(size = 3)
+
+variance_partition_beta <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = FALSE
+)
+
+variance_partition_beta
+plot(variance_partition_beta)
+
+variance_partition_beta_common <- gam.hp(
+  thresholds_model_beta_gam_lm,
+  iv = NULL,
+  type = "dev",          # IMPORTANT
+  commonality = TRUE
+)
+
+vp <- variance_partition_beta_common$commonality.analysis
+hp <- variance_partition_beta$hierarchical.partitioning
+upset.hp(vp, hp, col = "cvd", digits = 1, nVar = 7)
+```
+
+
+---
+
+# Session info
+
+```{r}
+sessionInfo()
+```
+
