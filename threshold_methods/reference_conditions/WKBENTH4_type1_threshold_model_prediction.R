@@ -15,16 +15,16 @@ load('ref.cond_threshold_model_functions.RData')
 predict_biomass_longevity_threshold(longevity = 1, p = 0.75)
 
 # relative margalef diversity (biomass) indicator thresholds ~ log10(depth)
-predict_DMbiomass_depth_threhsold(depth = 200, p = 0.5)
+predict_DMbiomass_depth_threshold(depth = 200, p = 0.5)
 
 # long-lived fraction indicator thresholds ~ substrate
-predict_Lf_substrate_threhsold(substrate = 'Mixed', p = 0.8)
+predict_Lf_substrate_threshold(substrate = 'Mixed', p = 0.8)
 
 # species richness indicator thresholds ~ substrate
-predict_richness_substrate_threhsold(substrate = 'Sand', p = 0.9)
+predict_richness_substrate_threshold(substrate = 'Sand', p = 0.9)
 
 # sentinels of the seabed indicator thresholds ~ median longevity
-predict_sos_longevity_threhsold(longevity = 5, p = 0.6)
+predict_sos_longevity_threshold(longevity = 5, p = 0.6)
 
 
 # example of predicting thresholds for multiple environmental values and/or probabilities 
