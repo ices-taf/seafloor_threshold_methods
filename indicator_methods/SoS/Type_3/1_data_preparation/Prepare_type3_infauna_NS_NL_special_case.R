@@ -1,0 +1,515 @@
+# =======================================================================
+# Prepare Type 3 INFAUNA dataset (NS_NL) for SoS calculation
+# =======================================================================
+
+# -----------------------------------------------------------------------
+# Description
+# -----------------------------------------------------------------------
+# This script prepares the Type 3 infauna dataset NS_NLhabitats for
+# subsequent sentinel species selection, SoS calculation, and
+# pressure-state analysis.
+#
+# It follows the general workflow used for infauna datasets, including
+# harmonisation of biological and station-level information, taxonomic
+# standardisation, integration of SAR pressure metrics, and export of
+# a prepared dataset.
+#
+# This dataset requires a dedicated preparation script due to differences
+# in data structure compared to the general workflow, particularly in
+# station matching and in the format of pressure-related variables.
+#
+# A composite identifier (station_2), combining station and year, is
+# used to ensure consistent matching between biological and station-level
+# information. In addition, pressure-related fields in the station sheet
+# require dataset-specific handling to ensure correct numeric conversion.
+
+# -----------------------------------------------------------------------
+# Main steps
+# -----------------------------------------------------------------------
+# - Read the NS_NLhabitats dataset from the repository data folder
+# - Detect biological and station sheets using flexible matching
+# - Construct a composite identifier (station_2) for matching
+# - Standardise station, year, taxonomic and biological variables
+# - Harmonise taxonomy using WoRMS (AphiaID and species names)
+# - Read and standardise pressure-related variables from the station sheet
+# - Merge station-level information using station_2
+# - Extract and standardise SAR pressure metrics when available
+# - Merge BESITO sensitivity scores
+# - Export one prepared "_data_ready.xlsx" file
+
+# -----------------------------------------------------------------------
+# Input
+# -----------------------------------------------------------------------
+# - Raw Type 3 dataset:
+#   ../../../data/Type3/NS_NLhabitats.xlsx
+# - External BESITO lookup table
+
+# -----------------------------------------------------------------------
+# Output
+# -----------------------------------------------------------------------
+# - Prepared dataset saved in:
+#   ../prepared_data/INFAUNA_DATA/
+
+# -----------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------
+# - This script is dataset-specific (NS_NLhabitats)
+# - A composite identifier (station_2 = station + year) is required for
+#   accurate matching
+# - Pressure-related variables in the station sheet are read as text and
+#   converted explicitly to numeric to avoid misinterpretation
+# - Differences in station structure and pressure formatting prevent
+#   direct use of the generic script
+# - WoRMS is used to complete missing AphiaID or species names when possible
+# - BESITO is treated as an external dependency
+
+# -----------------------------------------------------------------------
+# Required packages
+# -----------------------------------------------------------------------
+# - readxl
+# - openxlsx
+# - worms
+# ----------------------------
+# Load libraries
+# ----------------------------
+library(readxl)
+library(openxlsx)
+library(worms)
+
+# ----------------------------
+# Clear workspace
+# ----------------------------
+rm(list = ls())
+gc()
+
+# -----------------------------------------------------------------------
+# Input and output folders
+# -----------------------------------------------------------------------
+
+input_folder  <- "../../../data/Type3"
+output_folder <- "../prepared_data/INFAUNA_DATA"
+
+if(!dir.exists(output_folder)){
+  dir.create(output_folder, recursive = TRUE)
+}
+
+# -----------------------------------------------------------------------
+# List input files
+# -----------------------------------------------------------------------
+
+all_files <- list.files(input_folder, pattern = "\\.xlsx$", full.names = TRUE)
+all_files <- all_files[!grepl("^~\\$", basename(all_files))] # Remove temporary Excel lock files
+
+# Process only the NS_NLhabitats dataset
+
+all_files <- all_files[basename(all_files) == "NS_NLhabitats.xlsx"]
+# ----------------------------
+# Helper functions
+# ----------------------------
+assign_column <- function(target_col, possible_names, df_raw, df_prepared, convert_fun = identity){
+  col_name <- names(df_raw)[tolower(names(df_raw)) %in% tolower(possible_names)]
+  if(length(col_name) == 1){
+    df_prepared[[target_col]] <- convert_fun(df_raw[[col_name]])
+  }
+  return(df_prepared)
+}
+
+# Convert to numeric robustly (handles commas, blanks, "TRUE"/"FALSE" -> NA)
+to_num_safe <- function(x){
+  x <- trimws(as.character(x))
+  x[x %in% c("", "NA", "NaN", "NULL")] <- NA
+  x <- gsub(",", ".", x)
+  suppressWarnings(as.numeric(x))
+}
+
+# Year robust (handles Date/character/numeric)
+get_year <- function(x){
+  if(inherits(x, "Date") || inherits(x, "POSIXct") || inherits(x, "POSIXt")){
+    return(as.integer(format(x, "%Y")))
+  }
+  x_chr <- trimws(as.character(x))
+  y <- suppressWarnings(as.integer(substr(x_chr, 1, 4)))
+  y2 <- suppressWarnings(as.integer(x_chr))
+  y[is.na(y)] <- y2[is.na(y)]
+  return(y)
+}
+find_col <- function(df, candidates){
+  nms <- names(df)
+  nms_low <- tolower(trimws(nms))
+  cand_low <- tolower(trimws(candidates))
+  hit <- match(cand_low, nms_low)
+  hit <- hit[!is.na(hit)]
+  if(length(hit) == 0) return(NA_character_)
+  nms[hit[1]]
+}
+# ----------------------------
+# Main loop
+# ----------------------------
+for(file_path in all_files){
+  
+  file_name <- basename(file_path)
+  cat("Processing file:", file_name, "\n")
+  
+  # ----------------------------
+  # Identify biological sheet
+  # ----------------------------
+  sheets <- excel_sheets(file_path)
+  bio_sheet <- sheets[sheets %in% c("Biological information","Biological info","Biological_information","Biological_Information")]
+  if(length(bio_sheet) == 0) stop("No biological information sheet found in file.")
+  
+  # ----------------------------
+  # Load Biological Information
+  # ----------------------------
+  bio_raw <- read_excel(file_path, sheet = bio_sheet[1])
+  
+  # ----------------------------
+  # Create EMPTY standard table (only final columns)
+  # ----------------------------
+  prepared_df <- data.frame(
+    station = NA_character_,
+    station_2 = NA_character_,
+    year = NA_integer_,
+    month = NA_integer_,
+    replicate = NA_character_,
+    lon = NA_real_,
+    lat = NA_real_,
+    AphiaID = NA_real_,
+    TaxCode = NA_character_,
+    Species = NA_character_,
+    Biomass = NA_real_,
+    Biomass_units = NA_character_,
+    Abundance = NA_real_,
+    Abundance_units = NA_character_,
+    Total_biomass = NA_real_,
+    Total_abundance = NA_real_,
+    MSFD_broad_Ch = NA_character_,
+    SAR1 = NA_real_,
+    info_SAR1 = NA_character_,
+    SAR3 = NA_real_,
+    info_SAR3 = NA_character_,
+    SAR5 = NA_real_,
+    info_SAR5 = NA_character_,
+    SAR2009 = NA_real_,
+    info_SAR2009 = NA_character_,
+    SARmax = NA_real_,
+    info_SARmax = NA_character_,
+    BESITO = NA_character_,
+    depth = NA_real_,
+    gear = NA_character_,
+    sediment = NA_character_,
+    stringsAsFactors = FALSE
+  )
+  prepared_df <- prepared_df[rep(1, nrow(bio_raw)), ] # replicate rows
+  
+  # ----------------------------
+  # Fill columns explicitly (case-insensitive)
+  # ----------------------------
+  prepared_df <- assign_column("station", c("station","Station","station_name"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("year",    c("year","Year"),                 bio_raw, prepared_df, get_year)
+  
+  # Build station_2 AFTER station + year are filled
+  prepared_df$station_2 <- paste(
+    trimws(as.character(prepared_df$station)),
+    trimws(as.character(prepared_df$year)),
+    sep = "_"
+  )
+  
+  prepared_df <- assign_column("month", c("month","Month"), bio_raw, prepared_df, as.integer)
+  prepared_df <- assign_column("replicate", c("replicate","Replicate","replicates","Replicates"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("lon", c("lon","Longitude","long","longitude_shooting"), bio_raw, prepared_df, as.numeric)
+  prepared_df <- assign_column("lat", c("lat","Latitude","latitude_hauling"), bio_raw, prepared_df, as.numeric)
+  prepared_df <- assign_column("AphiaID", c("AphiaID"), bio_raw, prepared_df, as.numeric)
+  prepared_df <- assign_column("TaxCode", c("TaxCode","taxcode"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("Species", c("Species","species"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("Biomass", c("biomass","Biomass"), bio_raw, prepared_df, as.numeric)
+  prepared_df <- assign_column("Abundance", c("abundance","Abundance"), bio_raw, prepared_df, as.numeric)
+  prepared_df <- assign_column("MSFD_broad_Ch", c("MSFD_broad_Ch","MSFD_BBHT","Habitat_type_MSFD"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("BESITO", c("BESITO"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("depth", c("depth","Depth"), bio_raw, prepared_df, as.numeric)
+  prepared_df <- assign_column("gear", c("gear","Gear"), bio_raw, prepared_df, as.character)
+  prepared_df <- assign_column("sediment", c("sediment","Sediment"), bio_raw, prepared_df, as.character)
+  
+  # ----------------------------
+  # Fill missing AphiaID from TaxCode using WoRMS
+  # ----------------------------
+  missing_idx <- which(is.na(prepared_df$AphiaID) & !is.na(prepared_df$TaxCode) & prepared_df$TaxCode != "")
+  taxnames_missing <- unique(prepared_df$TaxCode[missing_idx])
+  if(length(taxnames_missing) > 0){
+    worms_results <- wormsbymatchnames(taxnames_missing)
+    aphia_map <- worms_results[, c("scientificname", "AphiaID")]
+    colnames(aphia_map) <- c("TaxCode", "AphiaID_new")
+    
+    prepared_df <- merge(prepared_df, aphia_map, by = "TaxCode", all.x = TRUE, sort = FALSE)
+    prepared_df$AphiaID <- ifelse(is.na(prepared_df$AphiaID), prepared_df$AphiaID_new, prepared_df$AphiaID)
+    prepared_df$AphiaID_new <- NULL
+  }
+  
+  # ----------------------------
+  # Fill Species using WoRMS AphiaID
+  # ----------------------------
+  missing_species_idx <- which(!is.na(prepared_df$AphiaID) & (is.na(prepared_df$Species) | prepared_df$Species == ""))
+  if(length(missing_species_idx) > 0){
+    aphia_ids_missing <- unique(prepared_df$AphiaID[missing_species_idx])
+    worms_info <- wormsbyid(aphia_ids_missing)
+    
+    aphia_map <- worms_info[, c("AphiaID", "scientificname")]
+    colnames(aphia_map) <- c("AphiaID", "Species_new")
+    
+    prepared_df <- merge(prepared_df, aphia_map, by = "AphiaID", all.x = TRUE, sort = FALSE)
+    prepared_df$Species <- ifelse(is.na(prepared_df$Species) | prepared_df$Species == "", prepared_df$Species_new, prepared_df$Species)
+    prepared_df$Species_new <- NULL
+  }
+  
+  # ----------------------------
+  # Load Station Information and merge
+  # ----------------------------
+  possible_station_sheets <- c(
+    "Station information","station information",
+    "Station info","station info",
+    "Station_information","station_information","Station_Information"
+  )
+  station_sheet <- sheets[sheets %in% possible_station_sheets]
+  
+  if(length(station_sheet) == 0){
+    warning("No Station Information sheet found. Station-related columns will remain NA.")
+  } else {
+    
+    # IMPORTANT: read as TEXT to avoid pressure columns becoming logical
+    station_raw <- read_excel(file_path, sheet = station_sheet[1], col_types = "text")
+    station_raw <- as.data.frame(station_raw)
+    names(station_raw) <- tolower(gsub(" ", "_", names(station_raw)))
+    # ----------------------------
+    # Fix pressure-related columns
+    # ----------------------------
+    pressure_cols <- c(
+      "pressure_value",
+      "pressure_value_5y",
+      "sar5",
+      "sar3",
+      "sar1",
+      "sar2009"
+    )
+    
+    present_pressure_cols <- intersect(pressure_cols, names(station_raw))
+    
+    if(length(present_pressure_cols) > 0){
+      for(cc in present_pressure_cols){
+        station_raw[[cc]] <- to_num_safe(station_raw[[cc]])
+        station_raw[[cc]][station_raw[[cc]] %in% c(99999, 9999, -9999)] <- NA
+      }
+    }
+    
+    cat("\n--- DEBUG pressure_value_5y ---\n")
+    print(head(station_raw$pressure_value_5y, 20))
+    print(unique(station_raw$pressure_value_5y))
+    
+    # Detect columns needed to build station_2 in station_raw
+    station_col_candidates <- c("station","station_id","stationid",
+                                "stationcode","station_code","stn","stnid")
+    year_col_candidates <- c("year","survey_year","surveyyear","yr")
+    
+    st_station_col <- find_col(station_raw, station_col_candidates)
+    st_year_col    <- find_col(station_raw, year_col_candidates)
+    
+    if(is.na(st_station_col) || is.na(st_year_col)){
+      stop(paste0(
+        "Cannot build station_2 in station sheet. Required columns not found. Columns are: ",
+        paste(names(station_raw), collapse = ", ")
+      ))
+    }
+    
+    # Normalise year to YYYY in station_raw
+    station_raw[[st_year_col]] <- substr(trimws(as.character(station_raw[[st_year_col]])), 1, 4)
+    
+    # Build station_2 in station_raw
+    station_raw$station_2 <- paste(
+      trimws(as.character(station_raw[[st_station_col]])),
+      trimws(as.character(station_raw[[st_year_col]])),
+      sep = "_"
+    )
+    
+    # Clean station_2 in both tables
+    prepared_df$station_2 <- trimws(as.character(prepared_df$station_2))
+    station_raw$station_2 <- trimws(as.character(station_raw$station_2))
+    
+    idx <- match(tolower(prepared_df$station_2), tolower(station_raw$station_2))
+    cat("Match success (%): ", round(mean(!is.na(idx)) * 100, 2), "\n")
+    
+    # ----------------------------
+    # SAR columns mapping by file
+    # ----------------------------
+    sar5_mapping <- list(
+      "CS_NS_UKhabitats.xlsx" = "pressure_value",
+      "NS_BEhabitats.xlsx" = "pressure_value",
+      "NS_NLhabitats.xlsx" = "pressure_value_5y",
+      "WMS_APPEALMED.xlsx" = "sar5"
+    )
+    sar5_info <- "Average over the last 5 years prior to the sample"
+    
+    sar1_mapping <- list(
+      "NS_DKhabitats.xlsx" = "pressure_value",
+      "WMS_APPEALMED.xlsx" = "pressure_value"
+    )
+    sar1_info <- "Average over the last 1 year prior to the sample"
+    
+    sar2009_mapping <- list(
+      "CS_NS_UKhabitats.xlsx" = "pressure_value"
+    )
+    sar2009_info <- "Average from 2009 to the sampling year"
+    
+    # ----------------------------
+    # Fill SAR5
+    # ----------------------------
+    if(file_name %in% names(sar5_mapping)){
+      col_sar5 <- sar5_mapping[[file_name]]
+      if(col_sar5 %in% names(station_raw)){
+        prepared_df$SAR5 <- to_num_safe(station_raw[[col_sar5]][idx])
+        prepared_df$info_SAR5 <- sar5_info
+      } else {
+        warning(paste("SAR5 column not found in station_raw:", col_sar5))
+      }
+    }
+    
+    # Fill SAR1
+    if(file_name %in% names(sar1_mapping)){
+      col_sar1 <- sar1_mapping[[file_name]]
+      if(col_sar1 %in% names(station_raw)){
+        prepared_df$SAR1 <- to_num_safe(station_raw[[col_sar1]][idx])
+        prepared_df$info_SAR1 <- sar1_info
+      }
+    }
+    
+    # Fill SAR2009
+    if(file_name %in% names(sar2009_mapping)){
+      col_sar2009 <- sar2009_mapping[[file_name]]
+      if(col_sar2009 %in% names(station_raw)){
+        prepared_df$SAR2009 <- to_num_safe(station_raw[[col_sar2009]][idx])
+        prepared_df$info_SAR2009 <- sar2009_info
+      }
+    }
+    
+    # ----------------------------
+    # Other station-level fields (also use idx)
+    # ----------------------------
+    longitude_cols <- c("longitude","lon","long","longitude_shooting")
+    longitude_col <- longitude_cols[longitude_cols %in% names(station_raw)]
+    if(length(longitude_col) > 0) prepared_df$lon <- to_num_safe(station_raw[[longitude_col[1]]][idx])
+    
+    latitude_cols <- c("latitude","lat","latitude_hauling")
+    latitude_col <- latitude_cols[latitude_cols %in% names(station_raw)]
+    if(length(latitude_col) > 0) prepared_df$lat <- to_num_safe(station_raw[[latitude_col[1]]][idx])
+    
+    if("gear" %in% names(station_raw))  prepared_df$gear  <- station_raw$gear[idx]
+    if("month" %in% names(station_raw)) prepared_df$month <- suppressWarnings(as.integer(station_raw$month[idx]))
+    
+    if("total_biomass" %in% names(station_raw)){
+      prepared_df$Total_biomass <- to_num_safe(station_raw$total_biomass[idx])
+    } else if("total_biomass.x" %in% names(station_raw)){
+      prepared_df$Total_biomass <- to_num_safe(station_raw$total_biomass.x[idx])
+    }
+    
+    if("total_abundance" %in% names(station_raw)){
+      prepared_df$Total_abundance <- to_num_safe(station_raw$total_abundance[idx])
+    }
+    
+    msfd_cols <- c("habitat_type","msfd_broad_ch","msfd_bbht","habitat_type_msfd","habitat_type_msfd_broad")
+    msfd_col <- msfd_cols[msfd_cols %in% names(station_raw)]
+    if(length(msfd_col) > 0) prepared_df$MSFD_broad_Ch <- station_raw[[msfd_col[1]]][idx]
+    
+    if("sediment" %in% names(station_raw)) prepared_df$sediment <- station_raw$sediment[idx]
+    if("depth" %in% names(station_raw))    prepared_df$depth    <- to_num_safe(station_raw$depth[idx])
+    
+    # Quick check
+    cat("SAR5 summary:\n"); print(summary(prepared_df$SAR5))
+  }
+  
+  # ----------------------------
+  # Biomass / Abundance units from Metadata
+  # ----------------------------
+  possible_meta_sheets <- c("Metadata and protocols","Metadata_and_protocols","Metadata_and_Protocols")
+  meta_sheet <- sheets[sheets %in% possible_meta_sheets]
+  
+  biomass_units <- NA_character_
+  abundance_units <- NA_character_
+  
+  if(length(meta_sheet) > 0){
+    meta <- read_excel(file_path, sheet = meta_sheet[1], col_names = FALSE)
+    colnames(meta) <- paste0("col", seq_len(ncol(meta)))
+    meta$col1_low <- tolower(trimws(meta$col1))
+    
+    idx_biomass <- which(grepl("^biomass$", meta$col1_low) | (grepl("biomass", meta$col1_low) & !grepl("total", meta$col1_low)))
+    if(length(idx_biomass) > 0){
+      biomass_units <- as.character(meta$col2[idx_biomass[1]])
+      if(toupper(biomass_units) %in% c("NA","")) biomass_units <- NA
+    }
+    
+    idx_abundance <- which(grepl("^abundance$", meta$col1_low) | (grepl("abund", meta$col1_low) & !grepl("total", meta$col1_low)))
+    if(length(idx_abundance) > 0){
+      abundance_units <- as.character(meta$col2[idx_abundance[1]])
+      if(toupper(abundance_units) %in% c("NA","")) abundance_units <- NA
+    }
+  }
+  
+  prepared_df$Biomass_units   <- biomass_units
+  prepared_df$Abundance_units <- abundance_units
+  TotalBiomass <- sum(na.omit(prepared_df$Biomass))
+  
+  # ----------------------------
+  # Load BESITO  infauna, merge, and assign to prepared_df
+  # ----------------------------
+  # File paths
+  besito_infauna_file <- "SET_PATH_TO_EXTERNAL_BESITO_INFAUNA_FILE"
+  
+  # Load files
+  besito_infauna <- read.csv(besito_infauna_file)
+  
+  # Normalised names
+  names(besito_infauna) <- tolower(names(besito_infauna))
+  
+  # Check required columns
+  if(!all(c("aphiaid","besito") %in% names(besito_infauna))){
+    stop("Required columns ('AphiaID' and 'BESITO') are missing in the infauna file.") 
+    }
+  
+  # Remove duplicates
+  besito <- besito_infauna[!duplicated(besito_infauna$aphiaid), ]
+  prepared_df$BESITO <- NULL
+  
+  # Merge with prepared_df
+  prepared_df <- merge(prepared_df, besito[, c("aphiaid","besito")], by.x = "AphiaID", by.y = "aphiaid", all.x = TRUE, sort = FALSE)
+  
+  
+  # names
+  names(prepared_df)[names(prepared_df) == "besito"] <- "BESITO"
+  
+  nrow(prepared_df)
+  summary(prepared_df$BESITO)
+  prepared_df$BESITO <- ifelse(is.na(prepared_df$BESITO), "1", prepared_df$BESITO)
+  summary(prepared_df$BESITO)
+  prepared_df <- prepared_df[!is.na(prepared_df$BESITO),]
+  nrow(prepared_df)
+  
+  TotalBiomassAfterMerging <- sum(na.omit(prepared_df$Biomass))
+  Propor <- TotalBiomassAfterMerging/TotalBiomass 
+  
+  # ----------------------------
+  # Force final column order + export
+  # ----------------------------
+  final_col_order <- c(
+    "station","station_2","year","month","depth","gear","replicate","lon","lat",
+    "AphiaID","Species","BESITO","TaxCode","Biomass","Biomass_units",
+    "Abundance","Abundance_units","Total_biomass","Total_abundance",
+    "MSFD_broad_Ch","sediment","SAR1","info_SAR1",
+    "SAR5","info_SAR5","SAR2009","info_SAR2009"
+  )
+  
+  prepared_df <- prepared_df[, final_col_order[final_col_order %in% names(prepared_df)]]
+  
+  prepared_df_export <- prepared_df
+  if("TaxCode" %in% names(prepared_df_export)) prepared_df_export$TaxCode <- NULL
+  
+  output_file <- file.path(output_folder, paste0(tools::file_path_sans_ext(file_name), "_data_ready.xlsx"))
+  write.xlsx(prepared_df_export, output_file, rowNames = FALSE)
+  
+  cat("Finished:", file_name, "\n\n")
+}
